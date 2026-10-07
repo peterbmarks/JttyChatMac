@@ -94,6 +94,11 @@ final class PlaybackEngine {
     private let format = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: Double(Jtty.txSampleRate),
                                         channels: 1, interleaved: true)!
 
+    // Tracks which device the engine is currently configured for, so repeat
+    // sends to the same device don't tear the engine down and rebuild it
+    // every time (see play(), below).
+    private var configuredDeviceID: AudioDeviceID?
+
     init() {
         engine.attach(player)
         engine.connect(player, to: engine.mainMixerNode, format: format)
@@ -105,11 +110,21 @@ final class PlaybackEngine {
             return
         }
 
-        if engine.isRunning {
-            engine.stop()
-        }
-        if let deviceID {
-            try CaptureEngine.setDevice(deviceID, on: engine.outputNode.audioUnit)
+        // AVAudioPlayerNode doesn't reset its own play/pause state just
+        // because the engine was stopped - without this, scheduling and
+        // playing a new buffer on a node left over from a previous send
+        // silently does nothing (the first transmission plays fine, every
+        // one after it is silent).
+        player.stop()
+
+        if deviceID != configuredDeviceID {
+            if engine.isRunning {
+                engine.stop()
+            }
+            if let deviceID {
+                try CaptureEngine.setDevice(deviceID, on: engine.outputNode.audioUnit)
+            }
+            configuredDeviceID = deviceID
         }
 
         guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count)) else {
@@ -121,8 +136,10 @@ final class PlaybackEngine {
             buffer.int16ChannelData![0].update(from: samplesPtr.baseAddress!, count: samples.count)
         }
 
-        engine.prepare()
-        try engine.start()
+        if !engine.isRunning {
+            engine.prepare()
+            try engine.start()
+        }
 
         player.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { _ in
             DispatchQueue.main.async(execute: completion)

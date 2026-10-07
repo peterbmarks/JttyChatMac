@@ -95,7 +95,11 @@ final class ChatViewModel: ObservableObject {
         let totalMs = leadMs + durationMs + Self.txTailMs
 
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(leadMs)) { [weak self] in
-            try? self?.playbackEngine.play(samples: samples, deviceID: outputDeviceID) {}
+            do {
+                try self?.playbackEngine.play(samples: samples, deviceID: outputDeviceID) {}
+            } catch {
+                self?.alertMessage = "Couldn't play the transmit audio: \(error.localizedDescription)"
+            }
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(totalMs)) { [weak self] in
