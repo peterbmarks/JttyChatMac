@@ -11,24 +11,37 @@ struct ContentView: View {
     private static let spectrumLowHz = 1400
     private static let spectrumHighHz = 1700
 
+    // Keeps bubbles from growing wider than a sensible fraction of the
+    // viewport width, matching JttyChatLinux's MainWindow::updateBubbleWidths
+    // (kMaxBubbleWidthFraction = 70%); recomputed as the window resizes.
+    private static let maxBubbleWidthFraction: CGFloat = 0.7
+    private static let minBubbleWidth: CGFloat = 100
+
+    private static func maxBubbleWidth(forViewportWidth viewportWidth: CGFloat) -> CGFloat {
+        max(minBubbleWidth, viewportWidth * maxBubbleWidthFraction)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             SpectrumView(bitmap: viewModel.waterfall, lowHz: Self.spectrumLowHz, highHz: Self.spectrumHighHz)
 
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 4) {
-                        ForEach(viewModel.messages) { message in
-                            ChatBubbleView(message: message)
+            GeometryReader { geometry in
+                let maxBubbleWidth = Self.maxBubbleWidth(forViewportWidth: geometry.size.width)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 4) {
+                            ForEach(viewModel.messages) { message in
+                                ChatBubbleView(message: message, maxBubbleWidth: maxBubbleWidth)
+                            }
+                            Color.clear.frame(height: 1).id("bottom")
                         }
-                        Color.clear.frame(height: 1).id("bottom")
+                        .padding(.vertical, 8)
+                        .padding(.horizontal, 4)
                     }
-                    .padding(.vertical, 8)
-                    .padding(.horizontal, 4)
-                }
-                .background(Color.white)
-                .onChange(of: viewModel.messages.count) { _, _ in
-                    withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
+                    .background(Color.white)
+                    .onChange(of: viewModel.messages.count) { _, _ in
+                        withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
+                    }
                 }
             }
 

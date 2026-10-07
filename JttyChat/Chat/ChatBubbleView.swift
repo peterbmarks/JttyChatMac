@@ -6,6 +6,12 @@ import SwiftUI
 struct ChatBubbleView: View {
     let message: ChatMessage
 
+    // Keeps bubbles from growing wider than a sensible fraction of the
+    // scroll area as the window is resized - the caller (ContentView)
+    // computes this from the current viewport width. Defaults to a
+    // reasonable fallback (e.g. for previews) if not overridden.
+    var maxBubbleWidth: CGFloat = 320
+
     private static let sentBackground = Color(red: 0x0b / 255.0, green: 0x93 / 255.0, blue: 0xf6 / 255.0)
     private static let receivedBackground = Color(red: 0xe5 / 255.0, green: 0xe5 / 255.0, blue: 0xea / 255.0)
 
@@ -17,7 +23,15 @@ struct ChatBubbleView: View {
                 .font(.system(size: 14))
                 .foregroundColor(message.isSent ? .white : .black)
                 .multilineTextAlignment(.leading)
-                .frame(maxWidth: 320, alignment: .leading)
+                .frame(maxWidth: maxBubbleWidth, alignment: .leading)
+                // Pins this view to its own ideal size on both axes (capped
+                // by the frame above), rather than accepting whatever width
+                // the enclosing HStack happens to propose. Without this, the
+                // Text competes with the Spacer for the HStack's slack space
+                // instead of leaving all of it to the Spacer, which is what
+                // was stretching sent bubbles out to maxBubbleWidth
+                // regardless of how short the message actually was.
+                .fixedSize()
                 .padding(.vertical, 8)
                 .padding(.horizontal, 12)
                 .background(message.isSent ? Self.sentBackground : Self.receivedBackground)
