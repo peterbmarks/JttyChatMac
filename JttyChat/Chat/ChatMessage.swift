@@ -8,4 +8,5 @@ struct ChatMessage: Identifiable, Equatable {
     let id = UUID()
     let text: String
     let isSent: Bool
+    let date: Date = Date()
 }
