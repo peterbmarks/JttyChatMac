@@ -1,0 +1,11 @@
+The Fortran sources in this directory are copied from the JTTY mode codec
+in wsjtx-3.2.0-rc1 (a WSJT-X fork), unmodified except where noted in this
+project's commit history. They are licensed under the GNU General Public
+License v3 (see COPYING in this directory); this project links them under
+the same terms.
+
+Entry points used by JttyChat (see ../../src/JttyCodec.h):
+  genjtty_profile_  - encode text to tone symbols
+  gen_jttywave_     - render tone symbols to a GFSK audio waveform
+  rjtty_sub_        - scan a receive buffer for JTTY frames
+  jtty_get_updates_ - drain decoded messages
