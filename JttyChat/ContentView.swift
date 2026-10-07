@@ -54,6 +54,9 @@ struct ContentView: View {
                 .background(Color.white)
                 .clipShape(Capsule())
                 .overlay(Capsule().stroke(Color(white: 0.78), lineWidth: 1))
+                // The field always has a white background, so render it in light mode
+                // to keep the text, placeholder and caret dark when the system is in dark mode.
+                .environment(\.colorScheme, .light)
                 .onSubmit { viewModel.sendMessage() }
                 .disabled(viewModel.isSending)
 
