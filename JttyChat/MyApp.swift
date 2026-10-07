@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// App scenes: the main chat window plus a File > Settings... window and a
-/// Frequency menu for quick-tuning the rig. Ported from
-/// JttyChatLinux/src/main.cpp + MainWindow.cpp's createMenuBar().
+/// App scenes: the main chat window plus a Settings... window (in the
+/// standard app-menu location) and a Frequency menu for quick-tuning the
+/// rig. Ported from JttyChatLinux/src/main.cpp + MainWindow.cpp's
+/// createMenuBar().
 @main
 struct MyApp: App {
     @StateObject private var settings = AppSettings.shared
@@ -21,8 +22,7 @@ struct MyApp: App {
         }
         .windowResizability(.contentSize)
         .commands {
-            CommandGroup(after: .newItem) {
-                Divider()
+            CommandGroup(replacing: .appSettings) {
                 Button("Settings...") { openWindow(id: "settings") }
                     .keyboardShortcut(",", modifiers: .command)
             }
