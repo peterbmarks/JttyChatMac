@@ -10,9 +10,22 @@
 		000000000000000000000120 /* JttyChat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = JttyChat.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		72BFC23F3076155A004686EF /* Exceptions for "JttyChat" folder in "JttyChat" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 000000000000000100000000 /* JttyChat */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		000000000000000000000010 /* JttyChat */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				72BFC23F3076155A004686EF /* Exceptions for "JttyChat" folder in "JttyChat" target */,
+			);
 			path = JttyChat;
 			sourceTree = "<group>";
 		};
@@ -258,6 +271,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = /opt/homebrew/opt/hamlib/include;
+				INFOPLIST_FILE = JttyChat/Info.plist;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "JttyChat listens to this input to decode JTTY signals received from your transceiver.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
@@ -311,6 +325,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = /opt/homebrew/opt/hamlib/include;
+				INFOPLIST_FILE = JttyChat/Info.plist;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "JttyChat listens to this input to decode JTTY signals received from your transceiver.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
