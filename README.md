@@ -149,7 +149,7 @@ ThirdParty/jtty_codec/          JTTY encode/decode DSP engine (Fortran, GPLv3, u
   Apple Silicon Mac with Homebrew at the default `/opt/homebrew` prefix is
   assumed. The Fortran runtime libraries are referenced via the specific
   installed `gcc` version's Cellar path (e.g.
-  `/opt/homebrew/Cellar/gcc/16.1.0/...`), not the `opt/gcc` symlink, so an
+  `/opt/homebrew/Cellar/gcc/16.2.0/...`), not the `opt/gcc` symlink, so an
   unrelated `brew upgrade gcc` can break the link step — if that happens,
   update `OTHER_LDFLAGS` in the JttyChat target's build settings to match
   `brew --cellar gcc`'s new version.

@@ -304,9 +304,9 @@
 				OTHER_LDFLAGS = (
 					"$(SRCROOT)/ThirdParty/jtty_codec/lib/libjttycodec.a",
 					/opt/homebrew/opt/fftw/lib/libfftw3f.a,
-					/opt/homebrew/Cellar/gcc/16.1.0/lib/gcc/current/libgfortran.a,
-					/opt/homebrew/Cellar/gcc/16.1.0/lib/gcc/current/libquadmath.a,
-					"/opt/homebrew/Cellar/gcc/16.1.0/lib/gcc/current/gcc/aarch64-apple-darwin25/16/libgcc.a",
+					/opt/homebrew/Cellar/gcc/16.2.0/lib/gcc/current/libgfortran.a,
+					/opt/homebrew/Cellar/gcc/16.2.0/lib/gcc/current/libquadmath.a,
+					"/opt/homebrew/Cellar/gcc/16.2.0/lib/gcc/current/gcc/aarch64-apple-darwin25/16/libgcc.a",
 					"-lhamlib",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.marxy.JttyChat;
@@ -373,9 +373,9 @@
 				OTHER_LDFLAGS = (
 					"$(SRCROOT)/ThirdParty/jtty_codec/lib/libjttycodec.a",
 					/opt/homebrew/opt/fftw/lib/libfftw3f.a,
-					/opt/homebrew/Cellar/gcc/16.1.0/lib/gcc/current/libgfortran.a,
-					/opt/homebrew/Cellar/gcc/16.1.0/lib/gcc/current/libquadmath.a,
-					"/opt/homebrew/Cellar/gcc/16.1.0/lib/gcc/current/gcc/aarch64-apple-darwin25/16/libgcc.a",
+					/opt/homebrew/Cellar/gcc/16.2.0/lib/gcc/current/libgfortran.a,
+					/opt/homebrew/Cellar/gcc/16.2.0/lib/gcc/current/libquadmath.a,
+					"/opt/homebrew/Cellar/gcc/16.2.0/lib/gcc/current/gcc/aarch64-apple-darwin25/16/libgcc.a",
 					"-lhamlib",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.marxy.JttyChat;
