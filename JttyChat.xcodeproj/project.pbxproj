@@ -8,6 +8,7 @@
 
 /* Begin PBXFileReference section */
 		000000000000000000000120 /* JttyChat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = JttyChat.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		72BFC240307616C9004686EF /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -43,6 +44,7 @@
 		000000000000000000000001 = {
 			isa = PBXGroup;
 			children = (
+				72BFC240307616C9004686EF /* README.md */,
 				000000000000000000000010 /* JttyChat */,
 				000000000000000000000020 /* Products */,
 			);
