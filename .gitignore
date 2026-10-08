@@ -1,2 +1,5 @@
 JttyChat.xcodeproj/project.xcworkspace/xcuserdata/marksp.xcuserdatad/UserInterfaceState.xcuserstate
 /JttyChat.xcodeproj/project.xcworkspace/xcuserdata
+
+# Large local HackRF/IQ captures - kept on disk for testing, too big for GitHub.
+*.iq8
