@@ -46,7 +46,7 @@ struct ChatBubbleView: View {
                         .fixedSize()
                         .textSelection(.enabled)
 
-                    if !message.isComplete {
+                    if message.decodeState == .inProgress {
                         DecodingCaret(color: textColor)
                     }
                 }
@@ -58,13 +58,13 @@ struct ChatBubbleView: View {
                 // faded, and outlined so it reads as not-yet-final even
                 // once the caret has blinked out.
                 .overlay {
-                    if !message.isComplete {
+                    if message.decodeState == .inProgress {
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
                             .strokeBorder(Color.secondary.opacity(0.35), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
                     }
                 }
 
-                Text(message.isComplete ? Self.timestampText(for: message.date) : "Receiving…")
+                Text(footerText)
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
                     .padding(.horizontal, 4)
@@ -87,7 +87,21 @@ struct ChatBubbleView: View {
 
     private var bubbleBackground: Color {
         let base = message.isSent ? Self.sentBackground : Self.receivedBackground
-        return message.isComplete ? base : base.opacity(0.5)
+        return message.decodeState == .inProgress ? base.opacity(0.5) : base
+    }
+
+    private var footerText: String {
+        switch message.decodeState {
+        case .inProgress:
+            return "Receiving…"
+        case .complete:
+            return Self.timestampText(for: message.date)
+        // Flagged rather than shown as an ordinary message: the text is
+        // only as much as got through, and a truncated callsign or report
+        // read as complete is worse than no decode at all.
+        case .incomplete:
+            return Self.timestampText(for: message.date) + " · incomplete"
+        }
     }
 
     // "4:32 PM" for messages from today, "Oct 7, 4:32 PM" otherwise.

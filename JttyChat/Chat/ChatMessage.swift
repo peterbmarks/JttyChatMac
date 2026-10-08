@@ -12,10 +12,22 @@ struct ChatMessage: Identifiable, Equatable {
     /// than a new one appearing per update (see ChatViewModel).
     var text: String
     let isSent: Bool
-    /// False while a received message is still arriving, so the bubble can
-    /// show that there's more to come. Sent messages are complete the
-    /// moment they're created.
-    var isComplete: Bool = true
+
+    /// How far a received message got. Sent messages are always
+    /// `.complete` - there's nothing to wait for.
+    enum DecodeState {
+        /// Still arriving; more text is expected.
+        case inProgress
+        /// The decoder reported the message as finished.
+        case complete
+        /// Stopped arriving without ever finishing - a signal that faded
+        /// out mid-message - but enough text had resolved to be worth
+        /// keeping. Shown as a normal bubble, marked so it isn't mistaken
+        /// for the whole message.
+        case incomplete
+    }
+
+    var decodeState: DecodeState = .complete
     /// When the bubble first appeared - i.e. when the message *started*
     /// arriving, not when it finished - so a live bubble's timestamp
     /// doesn't jump around while it fills in.

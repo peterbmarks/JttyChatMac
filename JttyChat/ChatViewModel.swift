@@ -21,6 +21,29 @@ final class ChatViewModel: ObservableObject {
     private static let captureStartRetries = 15
     private static let captureRetryDelay: TimeInterval = 2
 
+    // One JTTY frame of audio. The decoder reports progress on a message
+    // once per frame, so this is also the normal spacing between updates
+    // to an in-progress bubble (measured against a real transmission:
+    // 1.89s, very regular).
+    private static let frameDuration =
+        Double(Jtty.symbolsPerFrame * Jtty.rxSamplesPerSymbol) / Double(Jtty.rxSampleRate)
+    // How long an in-progress bubble may go without further progress
+    // before it's written off as a false start - the decoder beginning to
+    // assemble a message out of noise and then abandoning it, which
+    // otherwise leaves a half-decoded bubble on screen forever.
+    //
+    // Eight frames is deliberately generous against the ~1.9s normal
+    // cadence, so a weak signal that stalls for a few frames isn't thrown
+    // away; it's still only half the ~30s a maximum-length 16-frame
+    // message takes end to end.
+    private static let partialDecodeTimeout = 8 * frameDuration
+    private static let partialDecodeSweepInterval: TimeInterval = 2
+    // A stalled partial this short is the decoder having briefly latched
+    // onto noise, and is thrown away; anything longer is most likely a
+    // real transmission that faded out, so it's kept and marked as
+    // incomplete rather than discarded.
+    private static let minimumKeptPartialLength = 6
+
     @Published var messages: [ChatMessage] = []
     @Published var inputText = ""
     @Published var isSending = false
@@ -36,8 +59,15 @@ final class ChatViewModel: ObservableObject {
 
     // Bubbles for messages still arriving, keyed by the decoder's message
     // id, so each update rewrites the bubble it belongs to instead of
-    // appending a new one. Entries are dropped as messages complete.
-    private var liveBubbleIDs: [Int64: ChatMessage.ID] = [:]
+    // appending a new one. Entries are dropped as messages complete, or
+    // when they go quiet for too long (see dropStalePartialDecodes).
+    private struct LiveBubble {
+        let bubbleID: ChatMessage.ID
+        var lastProgress: Date
+    }
+
+    private var liveBubbles: [Int64: LiveBubble] = [:]
+    private var partialDecodeSweep: Timer?
 
     init(settings: AppSettings) {
         self.settings = settings
@@ -59,21 +89,97 @@ final class ChatViewModel: ObservableObject {
     // bubble is rewritten in place until the message completes.
     private func apply(_ update: JttyDecoder.Update) {
         defer {
-            if update.isComplete { liveBubbleIDs.removeValue(forKey: update.messageId) }
+            if update.isComplete {
+                liveBubbles.removeValue(forKey: update.messageId)
+                stopSweepIfIdle()
+            }
         }
 
         let text = displayText(for: update.text)
         guard !text.isEmpty else { return }
 
-        if let bubbleID = liveBubbleIDs[update.messageId],
-           let index = messages.firstIndex(where: { $0.id == bubbleID }) {
+        if let live = liveBubbles[update.messageId],
+           let index = messages.firstIndex(where: { $0.id == live.bubbleID }) {
+            // Only a change in the text counts as progress. The decoder
+            // keeps re-reporting a stalled message verbatim as it scans
+            // on, and taking those at face value would push the deadline
+            // out forever - the bubble would never time out at all.
+            if messages[index].text != text {
+                liveBubbles[update.messageId]?.lastProgress = Date()
+            }
             messages[index].text = text
-            messages[index].isComplete = update.isComplete
+            messages[index].decodeState = update.isComplete ? .complete : .inProgress
         } else {
-            let message = ChatMessage(text: text, isSent: false, isComplete: update.isComplete)
+            let message = ChatMessage(text: text, isSent: false,
+                                      decodeState: update.isComplete ? .complete : .inProgress)
             messages.append(message)
-            liveBubbleIDs[update.messageId] = message.id
+            // A message that arrived already complete needs no tracking;
+            // one still in progress has to be watched in case it stalls.
+            if !update.isComplete {
+                liveBubbles[update.messageId] = LiveBubble(bubbleID: message.id, lastProgress: Date())
+                startSweepIfNeeded()
+            }
         }
+    }
+
+    // MARK: - Abandoned partial decodes
+
+    // The decoder will happily start assembling a message out of band
+    // noise and then never finish it, which leaves a half-decoded bubble
+    // sitting on screen indefinitely. Nothing tells us a message has been
+    // abandoned - updates simply stop - so bubbles that stop making
+    // progress are swept away after partialDecodeTimeout.
+    //
+    // The timer only runs while something is actually in progress, so an
+    // idle receiver isn't waking up every couple of seconds for nothing.
+    private func startSweepIfNeeded() {
+        guard partialDecodeSweep == nil else { return }
+        partialDecodeSweep = Timer.scheduledTimer(withTimeInterval: Self.partialDecodeSweepInterval,
+                                                   repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.dropStalePartialDecodes() }
+        }
+    }
+
+    private func stopSweepIfIdle() {
+        guard liveBubbles.isEmpty else { return }
+        partialDecodeSweep?.invalidate()
+        partialDecodeSweep = nil
+    }
+
+    private func dropStalePartialDecodes() {
+        let cutoff = Date().addingTimeInterval(-Self.partialDecodeTimeout)
+        let stale = liveBubbles.filter { $0.value.lastProgress < cutoff }
+        guard !stale.isEmpty else { return }
+
+        for (messageId, live) in stale {
+            retire(live)
+            liveBubbles.removeValue(forKey: messageId)
+        }
+        stopSweepIfIdle()
+    }
+
+    // A bubble that will never make progress again: keep what was
+    // decoded if there's enough of it to be worth reading, otherwise
+    // remove it as a false start.
+    private func retire(_ live: LiveBubble) {
+        guard let index = messages.firstIndex(where: { $0.id == live.bubbleID }) else { return }
+        if messages[index].text.count > Self.minimumKeptPartialLength {
+            messages[index].decodeState = .incomplete
+        } else {
+            messages.remove(at: index)
+        }
+    }
+
+    // Capture was interrupted, so the decoder's in-flight messages are
+    // gone with it and their bubbles will never complete. Drop them now
+    // rather than leaving them to time out.
+    private func dropAllPartialDecodes() {
+        guard !liveBubbles.isEmpty else { return }
+        for live in liveBubbles.values {
+            retire(live)
+        }
+        liveBubbles.removeAll()
+        stopSweepIfIdle()
     }
 
     // JTTY is an uppercase-only mode, so every message - sent or received -
@@ -114,6 +220,7 @@ final class ChatViewModel: ObservableObject {
         // Samples from before and after the break aren't contiguous, so
         // don't let the decoder try to read a frame across the gap.
         decoder.reset()
+        dropAllPartialDecodes()
         startReceiver()
     }
 
