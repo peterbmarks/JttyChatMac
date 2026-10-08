@@ -16,6 +16,10 @@ final class ChatViewModel: ObservableObject {
     private static let spectrumFftSize = 8192 // ~1.5 Hz/bin at the 12 kHz Rx rate
     private static let pttLeadMs = 150 // brief key-up lead before audio starts, for real radios
     private static let txTailMs = 200 // margin after audio ends before unkeying/re-enabling Send
+    // A USB interface can take several seconds to re-enumerate after a
+    // wake, so keep trying for ~30s before bothering the user.
+    private static let captureStartRetries = 15
+    private static let captureRetryDelay: TimeInterval = 2
 
     @Published var messages: [ChatMessage] = []
     @Published var inputText = ""
@@ -92,14 +96,44 @@ final class ChatViewModel: ObservableObject {
             self.decoder.addSamples(samples)
             self.decoder.poll()
         }
-        try? captureEngine.start(deviceID: settings.resolvedInputDevice()?.id)
+        // The audio device reconfigured or the machine woke; AVAudioEngine
+        // has dropped the tap and won't restore it on its own.
+        captureEngine.onNeedsRestart = { [weak self] in
+            self?.restartReceiver()
+        }
+        startCapture(retriesRemaining: Self.captureStartRetries)
     }
 
-    // Audio device choices may have changed in Settings; restart capture
-    // against whatever is now configured.
+    // Audio device choices may have changed in Settings, or capture was
+    // interrupted; restart against whatever is now configured. The device
+    // is re-resolved from its saved UID each time, so an interface that
+    // comes back with a different AudioDeviceID after a wake or a replug
+    // is still found.
     func restartReceiver() {
         captureEngine.stop()
+        // Samples from before and after the break aren't contiguous, so
+        // don't let the decoder try to read a frame across the gap.
+        decoder.reset()
         startReceiver()
+    }
+
+    private func startCapture(retriesRemaining: Int) {
+        do {
+            try captureEngine.start(deviceID: settings.resolvedInputDevice()?.id)
+        } catch {
+            // Straight after a wake the input device may not be back yet,
+            // so retry for a while before giving up. Failing silently here
+            // is what used to leave the app permanently deaf with no hint
+            // that anything was wrong.
+            guard retriesRemaining > 0 else {
+                alertMessage = "Couldn't start listening on the audio input: "
+                    + "\(error.localizedDescription) Check the input device in Settings."
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.captureRetryDelay) { [weak self] in
+                self?.startCapture(retriesRemaining: retriesRemaining - 1)
+            }
+        }
     }
 
     // MARK: - Send

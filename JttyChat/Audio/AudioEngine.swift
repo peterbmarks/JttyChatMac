@@ -1,3 +1,4 @@
+import AppKit
 import AVFoundation
 import AudioToolbox
 import CoreAudio
@@ -19,6 +20,32 @@ final class CaptureEngine {
     /// AVAudioEngine delivers taps on (not the main thread).
     var onSamples: (([Int16]) -> Void)?
 
+    /// Called on the main queue when the system has torn this engine's
+    /// graph down and capture has to be built again from scratch.
+    ///
+    /// AVAudioEngine drops its node graph - taps included - whenever the
+    /// input device reconfigures: a sample-rate renegotiation, an unplug,
+    /// or coming back from sleep. It does *not* recover by itself, and the
+    /// tap simply never fires again, so without this the app goes
+    /// permanently deaf while still looking fine (the waterfall keeps
+    /// displaying its last painted frame).
+    var onNeedsRestart: (() -> Void)?
+
+    enum CaptureError: LocalizedError {
+        case unusableInputFormat(AVAudioFormat)
+
+        var errorDescription: String? {
+            switch self {
+            case .unusableInputFormat(let format):
+                return "The audio input reported an unusable format (\(format.sampleRate) Hz, "
+                    + "\(format.channelCount) ch)."
+            }
+        }
+    }
+
+    private var isTapInstalled = false
+    private var notificationObservers: [(NotificationCenter, NSObjectProtocol)] = []
+
     func start(deviceID: AudioDeviceID?) throws {
         stop()
 
@@ -28,24 +55,85 @@ final class CaptureEngine {
 
         let input = engine.inputNode
         let inputFormat = input.outputFormat(forBus: 0)
-        converter = AVAudioConverter(from: inputFormat, to: targetFormat)
 
-        input.installTap(onBus: 0, bufferSize: 2048, format: inputFormat) { [weak self] buffer, _ in
-            self?.convertAndEmit(buffer, inputFormat: inputFormat)
+        // Straight after a wake or a device change the input node can
+        // briefly report a zero-rate/zero-channel format. Building a tap
+        // on that yields a tap that never delivers anything - a silent,
+        // permanent failure - so refuse it and let the caller retry once
+        // the device has settled.
+        guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
+            throw CaptureError.unusableInputFormat(inputFormat)
         }
+
+        // format: nil means "whatever this bus is really producing".
+        // Handing installTap a format cached up here is what raised
+        // "Failed to create tap due to format mismatch" - an uncaught
+        // Objective-C exception, so a hard crash - once the device came
+        // back from sleep at a different sample rate than it left at.
+        input.installTap(onBus: 0, bufferSize: 2048, format: nil) { [weak self] buffer, _ in
+            self?.convertAndEmit(buffer)
+        }
+        isTapInstalled = true
 
         engine.prepare()
         try engine.start()
+
+        observeInterruptions()
     }
 
     func stop() {
-        if engine.isRunning {
+        for (center, observer) in notificationObservers {
+            center.removeObserver(observer)
+        }
+        notificationObservers.removeAll()
+
+        // Removing the tap is deliberately not conditional on the engine
+        // running: a start() that threw after installing the tap leaves
+        // one behind, and installing a second tap on the same bus raises.
+        if isTapInstalled {
             engine.inputNode.removeTap(onBus: 0)
+            isTapInstalled = false
+        }
+        if engine.isRunning {
             engine.stop()
         }
+        converter = nil
     }
 
-    private func convertAndEmit(_ buffer: AVAudioPCMBuffer, inputFormat: AVAudioFormat) {
+    private func observeInterruptions() {
+        let center = NotificationCenter.default
+        let configObserver = center.addObserver(forName: .AVAudioEngineConfigurationChange,
+                                                 object: engine, queue: .main) { [weak self] _ in
+            self?.onNeedsRestart?()
+        }
+        notificationObservers.append((center, configObserver))
+
+        // A sleep/wake cycle doesn't reliably produce a configuration
+        // change, but can still leave the engine wedged, so rebuild on
+        // wake regardless. The delay gives USB audio interfaces time to
+        // re-enumerate before the device is looked up again.
+        let workspaceCenter = NSWorkspace.shared.notificationCenter
+        let wakeObserver = workspaceCenter.addObserver(forName: NSWorkspace.didWakeNotification,
+                                                        object: nil, queue: .main) { [weak self] _ in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                self?.onNeedsRestart?()
+            }
+        }
+        notificationObservers.append((workspaceCenter, wakeObserver))
+    }
+
+    private func convertAndEmit(_ buffer: AVAudioPCMBuffer) {
+        let inputFormat = buffer.format
+
+        // The resampler is derived from the format the buffers actually
+        // arrive in, and rebuilt whenever that changes. A converter
+        // cached from an earlier format would resample by the wrong
+        // ratio, handing the decoder a stream on the wrong timebase -
+        // which an FFT-based waterfall still renders quite happily, while
+        // the demodulator sees nothing it can lock onto.
+        if converter?.inputFormat != inputFormat {
+            converter = AVAudioConverter(from: inputFormat, to: targetFormat)
+        }
         guard let converter else { return }
 
         let ratio = targetFormat.sampleRate / inputFormat.sampleRate

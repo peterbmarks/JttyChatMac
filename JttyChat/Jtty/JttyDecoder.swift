@@ -52,6 +52,17 @@ final class JttyDecoder {
 
     private var buffer: [Int16] = []
 
+    /// Throws away buffered audio, for when the capture stream has been
+    /// interrupted - a device change, or a sleep/wake gap - and the
+    /// samples either side of the break aren't contiguous in time.
+    ///
+    /// Shrinking the buffer is also what makes the Fortran decoder drop
+    /// its own sync state: rjtty_core restarts whenever it's handed a
+    /// buffer no longer than the last one it saw.
+    func reset() {
+        buffer.removeAll(keepingCapacity: true)
+    }
+
     func addSamples(_ samples: [Int16]) {
         if buffer.count + samples.count > Self.maxBufferSamples {
             buffer.removeAll()
