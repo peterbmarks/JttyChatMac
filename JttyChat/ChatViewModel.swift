@@ -35,11 +35,19 @@ final class ChatViewModel: ObservableObject {
         decoder.onMessageDecoded = { [weak self] text, _ in
             Task { @MainActor in
                 guard let self else { return }
-                let displayText = self.settings.capitalizeMessages ? text.capitalized : text
-                self.messages.append(ChatMessage(text: displayText, isSent: false))
+                self.messages.append(ChatMessage(text: self.displayText(for: text), isSent: false))
             }
         }
         startReceiver()
+    }
+
+    // JTTY is an uppercase-only mode, so every message - sent or received -
+    // is all caps by the time it reaches a bubble. The "Capitalise
+    // messages" setting re-cases it for readability without wrecking
+    // callsigns and Q-codes (see MessageCase). Display only: what's
+    // actually transmitted is the codec's own canonical text.
+    private func displayText(for text: String) -> String {
+        settings.capitalizeMessages ? MessageCase.sentenceCased(text) : text
     }
 
     // MARK: - Receive
@@ -76,7 +84,7 @@ final class ChatViewModel: ObservableObject {
             return
         }
 
-        messages.append(ChatMessage(text: encoded.canonicalText, isSent: true))
+        messages.append(ChatMessage(text: displayText(for: encoded.canonicalText), isSent: true))
         inputText = ""
         transmit(samples: encoded.samples)
     }
