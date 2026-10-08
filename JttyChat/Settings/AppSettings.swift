@@ -11,6 +11,7 @@ private enum SettingsKey {
     static let rigModel = "Transceiver.rigModel"
     static let rigPort = "Transceiver.rigPort"
     static let rigBaudRate = "Transceiver.rigBaudRate"
+    static let capitalizeMessages = "capitalizeMessages"
 }
 
 /// The transceiver configuration needed to transmit: rig model/port/baud
@@ -38,6 +39,7 @@ final class AppSettings: ObservableObject {
     @Published var rigModel: Int?
     @Published var rigPort: String
     @Published var rigBaudRate: String
+    @Published var capitalizeMessages: Bool
 
     private let defaults = UserDefaults.standard
 
@@ -48,6 +50,7 @@ final class AppSettings: ObservableObject {
         rigModel = defaults.object(forKey: SettingsKey.rigModel) as? Int
         rigPort = defaults.string(forKey: SettingsKey.rigPort) ?? ""
         rigBaudRate = defaults.string(forKey: SettingsKey.rigBaudRate) ?? Self.defaultBaudRate
+        capitalizeMessages = defaults.bool(forKey: SettingsKey.capitalizeMessages)
     }
 
     func save() {
@@ -61,6 +64,7 @@ final class AppSettings: ObservableObject {
         }
         defaults.set(rigPort.trimmingCharacters(in: .whitespaces), forKey: SettingsKey.rigPort)
         defaults.set(rigBaudRate, forKey: SettingsKey.rigBaudRate)
+        defaults.set(capitalizeMessages, forKey: SettingsKey.capitalizeMessages)
     }
 
     // Resolves the saved input/output device UID to a live CoreAudio

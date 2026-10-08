@@ -34,7 +34,9 @@ final class ChatViewModel: ObservableObject {
         self.settings = settings
         decoder.onMessageDecoded = { [weak self] text, _ in
             Task { @MainActor in
-                self?.messages.append(ChatMessage(text: text, isSent: false))
+                guard let self else { return }
+                let displayText = self.settings.capitalizeMessages ? text.capitalized : text
+                self.messages.append(ChatMessage(text: displayText, isSent: false))
             }
         }
         startReceiver()
