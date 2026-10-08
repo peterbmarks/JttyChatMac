@@ -177,6 +177,14 @@ ThirdParty/jtty_codec/          JTTY encode/decode DSP engine (Fortran, GPLv3, u
 macOS will prompt for microphone access the first time the app tries to
 capture audio for decoding — this is required for Receive to work.
 
+## Testing
+There is a wav file with a test message and a jtty\_capture.iq8 that can be transmitted with
+a hackRF like this:
+
+```sh
+hackrf_transfer -t jtty\_capture.iq8 -f 7090000 -x 47 -R
+```
+
 ## Credits
 
 The JTTY encode/decode engine in `ThirdParty/jtty_codec/` is copied,
