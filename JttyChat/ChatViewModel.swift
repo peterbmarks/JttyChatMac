@@ -30,15 +30,46 @@ final class ChatViewModel: ObservableObject {
     private let captureEngine = CaptureEngine()
     private let playbackEngine = PlaybackEngine()
 
+    // Bubbles for messages still arriving, keyed by the decoder's message
+    // id, so each update rewrites the bubble it belongs to instead of
+    // appending a new one. Entries are dropped as messages complete.
+    private var liveBubbleIDs: [Int64: ChatMessage.ID] = [:]
+
     init(settings: AppSettings) {
         self.settings = settings
-        decoder.onMessageDecoded = { [weak self] text, _ in
-            Task { @MainActor in
-                guard let self else { return }
-                self.messages.append(ChatMessage(text: self.displayText(for: text), isSent: false))
+        decoder.onMessageUpdated = { [weak self] update in
+            // Hops off the audio thread via the main *queue* rather than a
+            // Task: updates to one message supersede each other, and
+            // unstructured Tasks aren't guaranteed to run in the order
+            // they were created, which could leave a stale partial decode
+            // overwriting the finished text.
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { self?.apply(update) }
             }
         }
         startReceiver()
+    }
+
+    // Shows a message as it decodes. The decoder reports a growing (and
+    // occasionally revised) text for each message id, so the matching
+    // bubble is rewritten in place until the message completes.
+    private func apply(_ update: JttyDecoder.Update) {
+        defer {
+            if update.isComplete { liveBubbleIDs.removeValue(forKey: update.messageId) }
+        }
+
+        let text = displayText(for: update.text)
+        guard !text.isEmpty else { return }
+
+        if let bubbleID = liveBubbleIDs[update.messageId],
+           let index = messages.firstIndex(where: { $0.id == bubbleID }) {
+            messages[index].text = text
+            messages[index].isComplete = update.isComplete
+        } else {
+            let message = ChatMessage(text: text, isSent: false, isComplete: update.isComplete)
+            messages.append(message)
+            liveBubbleIDs[update.messageId] = message.id
+        }
     }
 
     // JTTY is an uppercase-only mode, so every message - sent or received -

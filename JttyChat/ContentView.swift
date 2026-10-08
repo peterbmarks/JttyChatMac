@@ -39,7 +39,11 @@ struct ContentView: View {
                         .padding(.horizontal, 4)
                     }
                     .background(Color.white)
-                    .onChange(of: viewModel.messages.count) { _, _ in
+                    // Watches the messages themselves, not just how many
+                    // there are: a received bubble grows in place as it
+                    // decodes, and the view should stay pinned to the
+                    // bottom while it does.
+                    .onChange(of: viewModel.messages) { _, _ in
                         withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
                     }
                 }

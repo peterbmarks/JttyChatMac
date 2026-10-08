@@ -25,9 +25,30 @@ final class JttyDecoder {
     // use, small enough to keep memory bounded for a long-running session.
     private static let maxBufferSamples = 10 * 60 * Jtty.rxSampleRate
 
-    /// Called (possibly off the main thread - see poll()'s caller) with the
-    /// decoded text and its audio frequency (Hz) once a message completes.
-    var onMessageDecoded: ((String, Float) -> Void)?
+    /// One report from the decoder about a message it's assembling.
+    ///
+    /// The Fortran decoder emits these as a transmission arrives, not just
+    /// at the end of one: text grows frame by frame ("TEST" -> "TEST
+    /// 12345" -> "TEST 12345 THIS"), and the trellis decoder can also
+    /// *revise* what it already reported as later frames resolve an
+    /// earlier ambiguity. So each update carries the full text so far
+    /// rather than just the new characters, and should replace whatever
+    /// was last shown for this messageId.
+    struct Update {
+        /// Identifies one message assembly across its updates. Several can
+        /// be in flight at once when more than one station is audible.
+        let messageId: Int64
+        /// The whole message as decoded so far, not only the new part.
+        let text: String
+        let frequencyHz: Float
+        /// True on the final update for this messageId; no more follow.
+        let isComplete: Bool
+    }
+
+    /// Called (possibly off the main thread - see poll()'s caller) each
+    /// time a message is extended or revised, and once more when it
+    /// completes.
+    var onMessageUpdated: ((Update) -> Void)?
 
     private var buffer: [Int16] = []
 
@@ -66,15 +87,14 @@ final class JttyDecoder {
                                textBlocks.count)
 
             for i in 0..<Int(count) {
-                guard messageIds[i] > 0, complete[i] else { continue }
+                guard messageIds[i] > 0 else { continue }
                 let start = i * Self.messageLength
                 let bytes = textBlocks[start..<(start + Self.messageLength)]
                     .map { UInt8(bitPattern: $0) }
                 let text = String(bytes: bytes, encoding: .isoLatin1)?
                     .trimmingCharacters(in: .whitespaces) ?? ""
-                if !text.isEmpty {
-                    onMessageDecoded?(text, frequencies[i])
-                }
+                onMessageUpdated?(Update(messageId: messageIds[i], text: text,
+                                          frequencyHz: frequencies[i], isComplete: complete[i]))
             }
         } while count == Self.batchSize
     }

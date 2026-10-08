@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 
 /// A single chat message rendered as a rounded speech bubble, aligned to
@@ -25,27 +26,45 @@ struct ChatBubbleView: View {
             // against the side of the window, rather than always under one
             // fixed edge regardless of bubble width.
             VStack(alignment: message.isSent ? .trailing : .leading, spacing: 2) {
-                Text(message.text)
-                    .font(.system(size: 14))
-                    .foregroundColor(message.isSent ? .white : .black)
-                    .multilineTextAlignment(.leading)
-                    .frame(maxWidth: maxBubbleWidth, alignment: .leading)
-                    // Pins this view to its own ideal size on both axes
-                    // (capped by the frame above), rather than accepting
-                    // whatever width the enclosing HStack happens to
-                    // propose. Without this, the Text competes with the
-                    // Spacer for the HStack's slack space instead of
-                    // leaving all of it to the Spacer, which is what was
-                    // stretching sent bubbles out to maxBubbleWidth
-                    // regardless of how short the message actually was.
-                    .fixedSize()
-                    .padding(.vertical, 8)
-                    .padding(.horizontal, 12)
-                    .background(message.isSent ? Self.sentBackground : Self.receivedBackground)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .textSelection(.enabled)
+                // The caret sits beside the text rather than inside it, so
+                // it can blink on its own; .bottom keeps it on the last
+                // line of a message that has wrapped.
+                HStack(alignment: .bottom, spacing: 3) {
+                    Text(message.text)
+                        .font(.system(size: 14))
+                        .foregroundColor(textColor)
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: maxBubbleWidth, alignment: .leading)
+                        // Pins this view to its own ideal size on both axes
+                        // (capped by the frame above), rather than accepting
+                        // whatever width the enclosing HStack happens to
+                        // propose. Without this, the Text competes with the
+                        // Spacer for the HStack's slack space instead of
+                        // leaving all of it to the Spacer, which is what was
+                        // stretching sent bubbles out to maxBubbleWidth
+                        // regardless of how short the message actually was.
+                        .fixedSize()
+                        .textSelection(.enabled)
 
-                Text(Self.timestampText(for: message.date))
+                    if !message.isComplete {
+                        DecodingCaret(color: textColor)
+                    }
+                }
+                .padding(.vertical, 8)
+                .padding(.horizontal, 12)
+                .background(bubbleBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                // A message still being decoded is drawn provisionally:
+                // faded, and outlined so it reads as not-yet-final even
+                // once the caret has blinked out.
+                .overlay {
+                    if !message.isComplete {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .strokeBorder(Color.secondary.opacity(0.35), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                    }
+                }
+
+                Text(message.isComplete ? Self.timestampText(for: message.date) : "Receiving…")
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
                     .padding(.horizontal, 4)
@@ -62,6 +81,15 @@ struct ChatBubbleView: View {
         .frame(maxWidth: .infinity, alignment: message.isSent ? .trailing : .leading)
     }
 
+    private var textColor: Color {
+        message.isSent ? .white : .black
+    }
+
+    private var bubbleBackground: Color {
+        let base = message.isSent ? Self.sentBackground : Self.receivedBackground
+        return message.isComplete ? base : base.opacity(0.5)
+    }
+
     // "4:32 PM" for messages from today, "Oct 7, 4:32 PM" otherwise.
     private static func timestampText(for date: Date) -> String {
         if Calendar.current.isDateInToday(date) {
@@ -69,5 +97,27 @@ struct ChatBubbleView: View {
         } else {
             return date.formatted(date: .abbreviated, time: .shortened)
         }
+    }
+}
+
+/// A blinking text caret, shown at the end of a message that's still
+/// being decoded. Lives in its own view so the repeating timer only
+/// exists while something is actually arriving - completed bubbles don't
+/// carry one.
+private struct DecodingCaret: View {
+    let color: Color
+
+    @State private var isVisible = true
+    private let blink = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        // A plain rectangle rather than a "|" glyph, so the caret is the
+        // same size whatever the font does with pipe characters.
+        RoundedRectangle(cornerRadius: 1, style: .continuous)
+            .fill(color.opacity(0.6))
+            .frame(width: 2, height: 15)
+            .opacity(isVisible ? 1 : 0)
+            .onReceive(blink) { _ in isVisible.toggle() }
+            .accessibilityHidden(true)
     }
 }
