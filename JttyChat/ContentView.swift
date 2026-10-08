@@ -75,6 +75,9 @@ struct ContentView: View {
                 // to keep the text, placeholder and caret dark when the system is in dark mode.
                 .environment(\.colorScheme, .light)
                 .onSubmit { viewModel.sendMessage() }
+                .onKeyPress(.upArrow) {
+                    viewModel.recallLastSentMessage() ? .handled : .ignored
+                }
                 .disabled(viewModel.isSending)
 
             Button("Send") { viewModel.sendMessage() }

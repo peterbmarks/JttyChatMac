@@ -49,6 +49,9 @@ final class ChatViewModel: ObservableObject {
     @Published var isSending = false
     @Published var alertMessage: String?
 
+    // The text of the most recently sent message, as typed, so it can be recalled with the up arrow.
+    private var lastSentText: String?
+
     let waterfall = WaterfallBitmap()
 
     private let settings: AppSettings
@@ -257,8 +260,17 @@ final class ChatViewModel: ObservableObject {
         }
 
         messages.append(ChatMessage(text: displayText(for: encoded.canonicalText), isSent: true))
+        lastSentText = text
         inputText = ""
         transmit(samples: encoded.samples)
+    }
+
+    /// Puts the last sent message back in the input field. Returns false if nothing has been sent yet.
+    @discardableResult
+    func recallLastSentMessage() -> Bool {
+        guard let lastSentText else { return false }
+        inputText = lastSentText
+        return true
     }
 
     private func transmit(samples: [Int16]) {
