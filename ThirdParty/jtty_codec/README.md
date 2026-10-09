@@ -1,9 +1,13 @@
 # jtty_codec (ported from JttyChatLinux)
 
-The Fortran sources here are unmodified, copied from `JttyChatLinux/thirdparty/jtty_codec`
+The Fortran sources here are copied from `JttyChatLinux/thirdparty/jtty_codec`
 (see `NOTICE.txt` / `COPYING`), which itself copied them unmodified from the JTTY mode
 codec in a WSJT-X fork. They implement the JTTY encode/decode DSP engine that
 `JttyChat/Jtty/JttyCodec.swift` and `JttyChat/Jtty/JttyDecoder.swift` call into.
+
+Local changes (marked `JttyChat:` in the source): `jtty_mdecode.f90` and `rjtty_sub.f90`
+carry each message's SNR and hard symbol-error counts through to `jtty_get_updates`,
+which has three extra output arrays for them.
 
 Xcode has no built-in Fortran compiler, so these files aren't part of the JttyChat
 Xcode target and aren't compiled by Xcode. Instead, `build.sh` compiles them with

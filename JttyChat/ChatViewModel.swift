@@ -49,6 +49,16 @@ final class ChatViewModel: ObservableObject {
     @Published var isSending = false
     @Published var alertMessage: String?
 
+    /// Signal quality of the most recently decoded frame, for the status
+    /// line under the waterfall. Nil until something has been decoded.
+    struct ReceiveQuality: Equatable {
+        let snrDb: Int
+        let symbolErrors: Int
+        let symbolsChecked: Int
+    }
+
+    @Published var receiveQuality: ReceiveQuality?
+
     // The text of the most recently sent message, as typed, so it can be recalled with the up arrow.
     private var lastSentText: String?
 
@@ -100,6 +110,9 @@ final class ChatViewModel: ObservableObject {
 
         let text = displayText(for: update.text)
         guard !text.isEmpty else { return }
+
+        receiveQuality = ReceiveQuality(snrDb: update.snrDb, symbolErrors: update.symbolErrors,
+                                        symbolsChecked: update.symbolsChecked)
 
         if let live = liveBubbles[update.messageId],
            let index = messages.firstIndex(where: { $0.id == live.bubbleID }) {

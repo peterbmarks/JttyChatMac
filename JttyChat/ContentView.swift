@@ -25,6 +25,8 @@ struct ContentView: View {
         VStack(spacing: 0) {
             SpectrumView(bitmap: viewModel.waterfall, lowHz: Self.spectrumLowHz, highHz: Self.spectrumHighHz)
 
+            statusLine
+
             GeometryReader { geometry in
                 let maxBubbleWidth = Self.maxBubbleWidth(forViewportWidth: geometry.size.width)
                 ScrollViewReader { proxy in
@@ -60,6 +62,27 @@ struct ContentView: View {
         } message: {
             Text(viewModel.alertMessage ?? "")
         }
+    }
+
+    // Signal quality of the last decoded frame: SNR, and how many symbols
+    // arrived wrong (and were corrected by the FEC) over the message so far.
+    private var statusLine: some View {
+        HStack(spacing: 16) {
+            if let quality = viewModel.receiveQuality {
+                Text("SNR \(quality.snrDb) dB")
+                Text("Errors \(quality.symbolErrors)/\(quality.symbolsChecked) symbols")
+            } else {
+                Text("No signal decoded")
+            }
+            Spacer()
+        }
+        .font(.system(size: 11).monospacedDigit())
+        .foregroundStyle(.secondary)
+        .padding(.vertical, 3)
+        .padding(.horizontal, 8)
+        .background(Color(white: 0.95))
+        // The strip always has a light background, so keep its text dark in dark mode too.
+        .environment(\.colorScheme, .light)
     }
 
     private var inputBar: some View {

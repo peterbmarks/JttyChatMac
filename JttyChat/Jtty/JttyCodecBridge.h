@@ -38,9 +38,13 @@ void rjtty_sub_(int16_t iwave[], int32_t *kz, int32_t *nsps, int32_t *nfa, int32
 
 // Drains up to 30 completed/updated messages per call; call repeatedly
 // while *count comes back equal to the batch size (30). textBlocks must be
-// 30*80 bytes; textBlocksLength must be that size.
+// 30*80 bytes; textBlocksLength must be that size. snrDb is the latest
+// frame's raw tone-power SNR; symbolErrors/symbolsChecked are hard symbol
+// error totals over the message so far (all three added locally to the
+// otherwise-unmodified codec).
 void jtty_get_updates_(char textBlocks[], int64_t messageIds[], float frequencies[],
-                        float startTsync[], bool eom[], int32_t *count, long textBlocksLength);
+                        float startTsync[], bool eom[], float snrDb[], int32_t symbolErrors[],
+                        int32_t symbolsChecked[], int32_t *count, long textBlocksLength);
 
 // Releases the decoder's cached FFT plans/buffers. Safe to call once at
 // shutdown.

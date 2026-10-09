@@ -43,7 +43,19 @@ final class JttyDecoder {
         let frequencyHz: Float
         /// True on the final update for this messageId; no more follow.
         let isComplete: Bool
+        /// SNR of the most recent frame, in dB referred to a 2500 Hz noise
+        /// bandwidth like WSJT-X reports it.
+        let snrDb: Int
+        /// Hard symbol errors the FEC had to overcome, totalled over every
+        /// frame received so far, out of symbolsChecked symbols.
+        let symbolErrors: Int
+        let symbolsChecked: Int
     }
+
+    // The codec measures SNR as tone power against the noise in one
+    // 31.25 Hz tone bin. WSJT-X's own debug output subtracts 20 dB to refer
+    // that to the conventional 2500 Hz bandwidth (10*log10(2500/31.25) ~= 19).
+    private static let snrBandwidthCorrectionDb: Float = 20
 
     /// Called (possibly off the main thread - see poll()'s caller) each
     /// time a message is extended or revised, and once more when it
@@ -93,9 +105,12 @@ final class JttyDecoder {
             var frequencies = [Float](repeating: 0, count: Self.batchSize)
             var sequenceStarts = [Float](repeating: 0, count: Self.batchSize)
             var complete = [Bool](repeating: false, count: Self.batchSize)
+            var snrs = [Float](repeating: 0, count: Self.batchSize)
+            var symbolErrors = [Int32](repeating: 0, count: Self.batchSize)
+            var symbolsChecked = [Int32](repeating: 0, count: Self.batchSize)
 
-            jtty_get_updates_(&textBlocks, &messageIds, &frequencies, &sequenceStarts, &complete, &count,
-                               textBlocks.count)
+            jtty_get_updates_(&textBlocks, &messageIds, &frequencies, &sequenceStarts, &complete,
+                               &snrs, &symbolErrors, &symbolsChecked, &count, textBlocks.count)
 
             for i in 0..<Int(count) {
                 guard messageIds[i] > 0 else { continue }
@@ -105,7 +120,10 @@ final class JttyDecoder {
                 let text = String(bytes: bytes, encoding: .isoLatin1)?
                     .trimmingCharacters(in: .whitespaces) ?? ""
                 onMessageUpdated?(Update(messageId: messageIds[i], text: text,
-                                          frequencyHz: frequencies[i], isComplete: complete[i]))
+                                          frequencyHz: frequencies[i], isComplete: complete[i],
+                                          snrDb: Int((snrs[i] - Self.snrBandwidthCorrectionDb).rounded()),
+                                          symbolErrors: Int(symbolErrors[i]),
+                                          symbolsChecked: Int(symbolsChecked[i])))
             }
         } while count == Self.batchSize
     }

@@ -15,6 +15,8 @@ module jtty_mdec
      real :: xdt   = 0.0              !Synced DT (0 to 0.5 s)
      real :: tsync = 0.0              !Time of sync from istart=1
      real :: snrdb = 0.0              !SNR of decoded frame
+     integer :: nsymerrs = 0          !Hard symbol errors in this frame (JttyChat)
+     integer :: nsymchecked = 0       !Symbols nsymerrs was counted over (JttyChat)
      character(len=80) :: decoded = ''
      logical :: trailing_sep = .false. !decoded ends with an implicit separator column
      logical :: is_last_frame = .false. !this frame had the "last frame of message" bit set
@@ -28,6 +30,11 @@ module jtty_mdec
      integer :: k = 0
      character(len=80) :: decoded = ''
      logical :: trailing_sep = .false.
+     ! JttyChat: signal quality, for display. snrdb is the latest frame's;
+     ! the symbol counts are totals over every frame merged so far.
+     real :: snrdb = 0.0
+     integer :: nsymerrs = 0
+     integer :: nsymchecked = 0
   end type message_assembly
 
   type :: frame_fingerprint
@@ -41,6 +48,9 @@ module jtty_mdec
      real :: start_tsync = 0.0
      character(len=80) :: decoded = ''
      logical :: complete = .false.
+     real :: snrdb = 0.0              !JttyChat: see message_assembly
+     integer :: nsymerrs = 0
+     integer :: nsymchecked = 0
   end type message_update
 
   integer, parameter        :: MAX_DECODES = 100
@@ -295,6 +305,9 @@ contains
             pending_updates(index)%f1=message%f1
             pending_updates(index)%decoded=message%decoded
             pending_updates(index)%complete=complete
+            pending_updates(index)%snrdb=message%snrdb
+            pending_updates(index)%nsymerrs=message%nsymerrs
+            pending_updates(index)%nsymchecked=message%nsymchecked
             return
          endif
       enddo
@@ -320,6 +333,9 @@ contains
       pending_updates(index)%start_tsync=message%start_tsync
       pending_updates(index)%decoded=message%decoded
       pending_updates(index)%complete=complete
+      pending_updates(index)%snrdb=message%snrdb
+      pending_updates(index)%nsymerrs=message%nsymerrs
+      pending_updates(index)%nsymchecked=message%nsymchecked
   end subroutine queue_message_update
 
   subroutine remove_active_message(index)
@@ -349,6 +365,9 @@ contains
            message%decoded='~'//trim(message%decoded)
       message%k=len_trim(message%decoded)
       message%trailing_sep=candidate%trailing_sep
+      message%snrdb=candidate%snrdb
+      message%nsymerrs=candidate%nsymerrs
+      message%nsymchecked=candidate%nsymchecked
 
       next_message_id=next_message_id+1_int64
       call queue_message_update(message,candidate%is_last_frame)
@@ -397,6 +416,9 @@ contains
       active_messages(index)%trailing_sep=candidate%trailing_sep
       active_messages(index)%f1=candidate%f1
       active_messages(index)%tsync=candidate%tsync
+      active_messages(index)%snrdb=candidate%snrdb
+      active_messages(index)%nsymerrs=active_messages(index)%nsymerrs+candidate%nsymerrs
+      active_messages(index)%nsymchecked=active_messages(index)%nsymchecked+candidate%nsymchecked
       call queue_message_update(active_messages(index),candidate%is_last_frame)
       message=active_messages(index)
       if(candidate%is_last_frame) call remove_active_message(index)
@@ -995,6 +1017,10 @@ contains
             a(1)=-cand(ncand)%f1
             call twkfreq(c0,c1,nchunk6,6000.0,a)
             nsync=-1   ! not meaningful for a sticky-sync retry; flags it in ndebug output
+            ! JttyChat: the SNR accumulators still hold the last blind
+            ! candidate's sync power; start this retry's SNR from scratch.
+            pt=0.
+            pa=0.
             call decode_and_merge(-1, decoded_ok)
             if(decoded_ok) call record_ch0_success()
             if(decoded_ok) channel_decoded=.true.
@@ -1055,6 +1081,13 @@ contains
       ! codeword bits).
       call jtty_tbcc_reencode_for_subtraction(final_payload, tone_symbols_chk)
       nsymerrs=13-nsync
+      cand(ncand)%nsymchecked=NFRAME_SYM
+      if(nsync.lt.0) then
+         ! JttyChat: a sticky-sync retry never measured its sync symbols
+         ! (nsync=-1), so count only the payload symbols.
+         nsymerrs=0
+         cand(ncand)%nsymchecked=NCHAN_SYM
+      endif
       do j = 1, NCHAN_SYM
          is=tone_symbols_chk(j)
          if(is.ne.irxchan(j)) nsymerrs=nsymerrs+1
@@ -1066,6 +1099,7 @@ contains
          snrdb=db(pt/pn)
          cand(ncand)%snrdb=snrdb
       endif
+      cand(ncand)%nsymerrs=nsymerrs
       cand(ncand)%tsync=(istart-1)/12000.0 + cand(ncand)%xdt
       decoded_ok=.true.
 
