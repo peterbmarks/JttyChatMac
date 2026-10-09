@@ -5,6 +5,8 @@ amateur radio digital mode. Type a message and send it, and it's transmitted
 over the air as a JTTY signal through your transceiver; messages received
 from other stations appear automatically as incoming chat bubbles.
 
+![screenshot](JttyChat.png)
+
 This is a native macOS/SwiftUI rewrite of an earlier Qt6/C++ Linux
 implementation of the same app (previously `JttyChatLinux/` in this repo,
 since removed now that everything of value has been ported here). The
