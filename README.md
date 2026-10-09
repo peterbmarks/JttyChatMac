@@ -214,3 +214,6 @@ JttyChat also depends on:
 
 - [Hamlib](https://hamlib.github.io/) — transceiver (CAT/PTT) control.
 - [FFTW](https://www.fftw.org/) — used internally by the JTTY codec.
+
+# License
+This application is licensed under GPL 3. The source code is available here: https://github.com/peterbmarks/JttyChatMac
