@@ -45,7 +45,20 @@ final class ChatViewModel: ObservableObject {
     private static let minimumKeptPartialLength = 6
 
     @Published var messages: [ChatMessage] = []
-    @Published var inputText = ""
+    // Capped at what one transmission can carry (16 frames of five
+    // characters), so the user sees the limit as they type or paste
+    // rather than the encoder silently cutting the message short.
+    @Published var inputText = "" {
+        didSet {
+            if inputText.count > Jtty.maxMessageLength {
+                inputText = String(inputText.prefix(Jtty.maxMessageLength))
+            }
+        }
+    }
+
+    var isAtMessageLengthLimit: Bool {
+        inputText.count >= Jtty.maxMessageLength
+    }
     @Published var isSending = false
     @Published var alertMessage: String?
 

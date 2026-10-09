@@ -51,6 +51,10 @@ struct ContentView: View {
                 }
             }
 
+            if viewModel.isAtMessageLengthLimit {
+                lengthLimitWarning
+            }
+
             inputBar
         }
         .frame(minWidth: 380, idealWidth: 420, minHeight: 480, idealHeight: 640)
@@ -83,6 +87,20 @@ struct ContentView: View {
         .background(Color(white: 0.95))
         // The strip always has a light background, so keep its text dark in dark mode too.
         .environment(\.colorScheme, .light)
+    }
+
+    private var lengthLimitWarning: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "exclamationmark.triangle.fill")
+            Text("Messages are limited to \(Jtty.maxMessageLength) characters")
+            Spacer()
+        }
+        .font(.system(size: 11))
+        // A dark orange, readable against the light grey strip in either appearance.
+        .foregroundStyle(Color(red: 0.7, green: 0.35, blue: 0.0))
+        .padding(.top, 6)
+        .padding(.horizontal, 12)
+        .background(Color(white: 0.95))
     }
 
     private var inputBar: some View {
