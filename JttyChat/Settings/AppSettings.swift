@@ -12,6 +12,7 @@ private enum SettingsKey {
     static let rigPort = "Transceiver.rigPort"
     static let rigBaudRate = "Transceiver.rigBaudRate"
     static let capitalizeMessages = "capitalizeMessages"
+    static let appendCallsign = "appendCallsign"
     static let macros = "macros"
 }
 
@@ -47,6 +48,7 @@ final class AppSettings: ObservableObject {
     @Published var rigPort: String
     @Published var rigBaudRate: String
     @Published var capitalizeMessages: Bool
+    @Published var appendCallsign: Bool
 
     static let macroCount = 8
 
@@ -65,6 +67,7 @@ final class AppSettings: ObservableObject {
         rigPort = defaults.string(forKey: SettingsKey.rigPort) ?? ""
         rigBaudRate = defaults.string(forKey: SettingsKey.rigBaudRate) ?? Self.defaultBaudRate
         capitalizeMessages = defaults.bool(forKey: SettingsKey.capitalizeMessages)
+        appendCallsign = defaults.bool(forKey: SettingsKey.appendCallsign)
         macros = Self.loadMacros(from: defaults)
     }
 
@@ -99,6 +102,7 @@ final class AppSettings: ObservableObject {
         defaults.set(rigPort.trimmingCharacters(in: .whitespaces), forKey: SettingsKey.rigPort)
         defaults.set(rigBaudRate, forKey: SettingsKey.rigBaudRate)
         defaults.set(capitalizeMessages, forKey: SettingsKey.capitalizeMessages)
+        defaults.set(appendCallsign, forKey: SettingsKey.appendCallsign)
     }
 
     // Resolves the saved input/output device UID to a live CoreAudio

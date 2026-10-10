@@ -15,6 +15,7 @@ struct SettingsView: View {
 
     @State private var callsign = ""
     @State private var capitalizeMessages = false
+    @State private var appendCallsign = false
 
     @State private var inputDevices: [AudioDeviceInfo] = []
     @State private var outputDevices: [AudioDeviceInfo] = []
@@ -37,6 +38,7 @@ struct SettingsView: View {
             Form {
                 TextField("Callsign:", text: $callsign, prompt: Text("e.g. W1AW"))
                 Toggle("Capitalise messages", isOn: $capitalizeMessages)
+                Toggle("Append callsign", isOn: $appendCallsign)
             }
 
             GroupBox("Transceiver") {
@@ -113,6 +115,7 @@ struct SettingsView: View {
     private func loadState() {
         callsign = settings.callsign
         capitalizeMessages = settings.capitalizeMessages
+        appendCallsign = settings.appendCallsign
 
         inputDevices = AudioDeviceLister.inputDevices()
         outputDevices = AudioDeviceLister.outputDevices()
@@ -160,6 +163,7 @@ struct SettingsView: View {
     private func save() {
         settings.callsign = callsign
         settings.capitalizeMessages = capitalizeMessages
+        settings.appendCallsign = appendCallsign
         settings.audioInputDeviceUID = selectedInputUID
         settings.audioOutputDeviceUID = selectedOutputUID
         settings.rigModel = selectedRigModel

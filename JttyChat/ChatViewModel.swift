@@ -278,7 +278,16 @@ final class ChatViewModel: ObservableObject {
         let text = inputText.trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty, !isSending else { return }
 
-        let encoded = Jtty.encodeMessage(text, toneFrequencyHz: Jtty.defaultToneHz)
+        var encoded = Jtty.encodeMessage(text, toneFrequencyHz: Jtty.defaultToneHz)
+        // Sign the message with the callsign if asked to and there's room.
+        // Even within 80 characters the longer text can fail to encode (it
+        // can need more than 16 frames), so then the message goes unsigned.
+        if let signed = signedWithCallsign(text) {
+            let encodedSigned = Jtty.encodeMessage(signed, toneFrequencyHz: Jtty.defaultToneHz)
+            if encodedSigned.ok {
+                encoded = encodedSigned
+            }
+        }
         guard encoded.ok else {
             alertMessage = "This message couldn't be encoded for JTTY (it may need more than "
                 + "16 frames' worth of compact atoms to send)."
@@ -289,6 +298,15 @@ final class ChatViewModel: ObservableObject {
         lastSentText = text
         inputText = ""
         transmit(samples: encoded.samples)
+    }
+
+    // The message with "-CALLSIGN" appended, or nil if the setting is off,
+    // there's no callsign, or the result wouldn't fit in one transmission.
+    private func signedWithCallsign(_ text: String) -> String? {
+        let callsign = settings.callsign.trimmingCharacters(in: .whitespaces)
+        guard settings.appendCallsign, !callsign.isEmpty else { return nil }
+        let signed = text + "-" + callsign
+        return signed.count <= Jtty.maxMessageLength ? signed : nil
     }
 
     /// Puts the last sent message back in the input field. Returns false if nothing has been sent yet.
