@@ -8,6 +8,10 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var viewModel: ChatViewModel
 
+    // Tracks the message field's cursor so macros insert at the insertion point.
+    @State private var messageSelection: TextSelection?
+    @FocusState private var isMessageFieldFocused: Bool
+
     private static let spectrumLowHz = 1400
     private static let spectrumHighHz = 1700
 
@@ -54,6 +58,8 @@ struct ContentView: View {
             if viewModel.isAtMessageLengthLimit {
                 lengthLimitWarning
             }
+
+            MacroBar(isDisabled: viewModel.isSending) { insertMacro($0) }
 
             inputBar
         }
@@ -105,7 +111,9 @@ struct ContentView: View {
 
     private var inputBar: some View {
         HStack(spacing: 8) {
-            TextField("Text Message", text: $viewModel.inputText, prompt: Text("Text Message"))
+            TextField("Text Message", text: $viewModel.inputText, selection: $messageSelection,
+                      prompt: Text("Text Message"))
+                .focused($isMessageFieldFocused)
                 .textFieldStyle(.plain)
                 .padding(.vertical, 8)
                 .padding(.horizontal, 14)
@@ -135,6 +143,31 @@ struct ContentView: View {
         .background(Color(white: 0.95))
     }
 
+    // Replaces the current selection (or inserts at the cursor) with the
+    // macro's text, then leaves the cursor just after it. With no known
+    // cursor position the text is appended to the end.
+    private func insertMacro(_ macroText: String) {
+        guard !macroText.isEmpty else { return }
+        var text = viewModel.inputText
+
+        var range = text.endIndex..<text.endIndex
+        if case .selection(let selected) = messageSelection?.indices,
+           selected.lowerBound >= text.startIndex, selected.upperBound <= text.endIndex {
+            range = selected
+        }
+
+        let cursorOffset = text.distance(from: text.startIndex, to: range.lowerBound) + macroText.count
+        text.replaceSubrange(range, with: macroText)
+        // inputText may truncate to the message length limit, so place the
+        // cursor against what it actually holds afterwards.
+        viewModel.inputText = text
+
+        let stored = viewModel.inputText
+        let cursor = stored.index(stored.startIndex, offsetBy: min(cursorOffset, stored.count))
+        isMessageFieldFocused = true
+        messageSelection = TextSelection(insertionPoint: cursor)
+    }
+
     private var sendButtonBackground: Color {
         let trimmedEmpty = viewModel.inputText.trimmingCharacters(in: .whitespaces).isEmpty
         return (viewModel.isSending || trimmedEmpty)
@@ -146,4 +179,5 @@ struct ContentView: View {
 #Preview {
     ContentView()
         .environmentObject(ChatViewModel(settings: AppSettings.shared))
+        .environmentObject(AppSettings.shared)
 }

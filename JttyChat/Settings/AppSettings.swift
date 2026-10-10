@@ -12,6 +12,13 @@ private enum SettingsKey {
     static let rigPort = "Transceiver.rigPort"
     static let rigBaudRate = "Transceiver.rigBaudRate"
     static let capitalizeMessages = "capitalizeMessages"
+    static let macros = "macros"
+}
+
+/// A canned message the user can drop into the input field with one click.
+struct Macro: Codable, Equatable {
+    var title: String
+    var message: String
 }
 
 /// The transceiver configuration needed to transmit: rig model/port/baud
@@ -41,6 +48,13 @@ final class AppSettings: ObservableObject {
     @Published var rigBaudRate: String
     @Published var capitalizeMessages: Bool
 
+    static let macroCount = 8
+
+    // The macro buttons above the input field. Edited one at a time from
+    // the chat window and saved straight away (see saveMacros), rather
+    // than going through the Settings window's save().
+    @Published var macros: [Macro]
+
     private let defaults = UserDefaults.standard
 
     private init() {
@@ -51,6 +65,26 @@ final class AppSettings: ObservableObject {
         rigPort = defaults.string(forKey: SettingsKey.rigPort) ?? ""
         rigBaudRate = defaults.string(forKey: SettingsKey.rigBaudRate) ?? Self.defaultBaudRate
         capitalizeMessages = defaults.bool(forKey: SettingsKey.capitalizeMessages)
+        macros = Self.loadMacros(from: defaults)
+    }
+
+    // Always returns exactly macroCount macros, filling any missing slots
+    // with the defaults M1...M8 and an empty message.
+    private static func loadMacros(from defaults: UserDefaults) -> [Macro] {
+        var saved: [Macro] = []
+        if let data = defaults.data(forKey: SettingsKey.macros),
+           let decoded = try? JSONDecoder().decode([Macro].self, from: data) {
+            saved = decoded
+        }
+        return (0..<macroCount).map { index in
+            index < saved.count ? saved[index] : Macro(title: "M\(index + 1)", message: "")
+        }
+    }
+
+    func saveMacros() {
+        if let data = try? JSONEncoder().encode(macros) {
+            defaults.set(data, forKey: SettingsKey.macros)
+        }
     }
 
     func save() {
