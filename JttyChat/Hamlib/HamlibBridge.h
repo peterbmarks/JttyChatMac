@@ -49,8 +49,13 @@ bool jttyrig_set_ptt(int model, const char *port, const char *baudRate, bool on,
 bool jttyrig_set_frequency(int model, const char *port, const char *baudRate, double freqHz,
                             char *outError, int outErrorSize);
 
-// The full version string of the loaded Hamlib library (e.g. "Hamlib 4.6.2
-// 2025-01-15T00:00:00Z SHA=..."). The returned string is owned by Hamlib.
+// Hamlib is loaded at runtime on first use: the copy embedded in the app
+// bundle and any externally installed copies are compared, and the newest
+// is used. If none can be loaded, the calls above fail with an error and the
+// two functions below return NULL.
+
+// The full version string of the loaded Hamlib library (e.g. "Hamlib 4.7.2
+// 2026-06-21T13:07:37Z SHA=..."). The returned string is owned by Hamlib.
 const char *jttyrig_hamlib_version(void);
 
 // Filesystem path of the Hamlib dynamic library that was actually loaded,

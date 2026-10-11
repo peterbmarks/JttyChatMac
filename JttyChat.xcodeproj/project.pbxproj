@@ -70,6 +70,7 @@
 				000000000000000120000000 /* Sources */,
 				000000000000000130000000 /* Frameworks */,
 				000000000000000140000000 /* Resources */,
+				000000000000000150000000 /* Embed Hamlib */,
 			);
 			buildRules = (
 			);
@@ -122,6 +123,27 @@
 			);
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		000000000000000150000000 /* Embed Hamlib */ = {
+			isa = PBXShellScriptBuildPhase;
+			inputPaths = (
+				"$(SRCROOT)/Scripts/embed_hamlib.sh",
+				/opt/homebrew/opt/hamlib/lib/libhamlib.4.dylib,
+				"/opt/homebrew/opt/libusb/lib/libusb-1.0.0.dylib",
+			);
+			name = "Embed Hamlib";
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/libhamlib.4.dylib",
+				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/libusb-1.0.0.dylib",
+			);
+			shellPath = /bin/sh;
+			shellScript = (
+				"\"${SRCROOT}/Scripts/embed_hamlib.sh\"",
+				"",
+			);
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		000000000000000120000000 /* Sources */ = {
@@ -280,6 +302,7 @@
 				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
 				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
 				ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY = NO;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = /opt/homebrew/opt/hamlib/include;
@@ -296,20 +319,14 @@
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				LD_RUNPATH_SEARCH_PATHS = (
-					/opt/homebrew/opt/hamlib/lib,
-					/opt/homebrew/opt/libusb/lib,
-				);
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
-				LIBRARY_SEARCH_PATHS = /opt/homebrew/opt/hamlib/lib;
-				MARKETING_VERSION = 1.2;
+				MARKETING_VERSION = 1.3;
 				OTHER_LDFLAGS = (
 					"$(SRCROOT)/ThirdParty/jtty_codec/lib/libjttycodec.a",
 					/opt/homebrew/opt/fftw/lib/libfftw3f.a,
 					/opt/homebrew/Cellar/gcc/16.2.0/lib/gcc/current/libgfortran.a,
 					/opt/homebrew/Cellar/gcc/16.2.0/lib/gcc/current/libquadmath.a,
 					"/opt/homebrew/Cellar/gcc/16.2.0/lib/gcc/current/gcc/aarch64-apple-darwin27/16/libgcc.a",
-					"-lhamlib",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.marxy.JttyChat;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -349,6 +366,7 @@
 				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
 				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
 				ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY = NO;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = /opt/homebrew/opt/hamlib/include;
@@ -365,20 +383,14 @@
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				LD_RUNPATH_SEARCH_PATHS = (
-					/opt/homebrew/opt/hamlib/lib,
-					/opt/homebrew/opt/libusb/lib,
-				);
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
-				LIBRARY_SEARCH_PATHS = /opt/homebrew/opt/hamlib/lib;
-				MARKETING_VERSION = 1.2;
+				MARKETING_VERSION = 1.3;
 				OTHER_LDFLAGS = (
 					"$(SRCROOT)/ThirdParty/jtty_codec/lib/libjttycodec.a",
 					/opt/homebrew/opt/fftw/lib/libfftw3f.a,
 					/opt/homebrew/Cellar/gcc/16.2.0/lib/gcc/current/libgfortran.a,
 					/opt/homebrew/Cellar/gcc/16.2.0/lib/gcc/current/libquadmath.a,
 					"/opt/homebrew/Cellar/gcc/16.2.0/lib/gcc/current/gcc/aarch64-apple-darwin27/16/libgcc.a",
-					"-lhamlib",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.marxy.JttyChat;
 				PRODUCT_NAME = "$(TARGET_NAME)";
