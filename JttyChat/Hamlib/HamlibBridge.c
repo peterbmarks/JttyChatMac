@@ -2,6 +2,7 @@
 
 #include <hamlib/rig.h>
 
+#include <dlfcn.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -170,4 +171,19 @@ bool jttyrig_set_frequency(int model, const char *port, const char *baudRate, do
         return false;
     }
     return true;
+}
+
+const char *jttyrig_hamlib_version(void)
+{
+    return hamlib_version2;
+}
+
+const char *jttyrig_hamlib_path(void)
+{
+    // Ask dyld which image a Hamlib function lives in; that's the library
+    // that was resolved at load time, wherever it came from.
+    Dl_info info;
+    if (dladdr((const void *)&rig_init, &info) && info.dli_fname)
+        return info.dli_fname;
+    return NULL;
 }

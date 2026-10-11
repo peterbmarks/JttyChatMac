@@ -49,6 +49,14 @@ bool jttyrig_set_ptt(int model, const char *port, const char *baudRate, bool on,
 bool jttyrig_set_frequency(int model, const char *port, const char *baudRate, double freqHz,
                             char *outError, int outErrorSize);
 
+// The full version string of the loaded Hamlib library (e.g. "Hamlib 4.6.2
+// 2025-01-15T00:00:00Z SHA=..."). The returned string is owned by Hamlib.
+const char *jttyrig_hamlib_version(void);
+
+// Filesystem path of the Hamlib dynamic library that was actually loaded,
+// or NULL if it can't be determined. The returned string is owned by dyld.
+const char *jttyrig_hamlib_path(void);
+
 #ifdef __cplusplus
 }
 #endif

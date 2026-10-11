@@ -20,6 +20,16 @@ struct RigConnectionResult {
 enum RigController {
     private static let messageBufferSize = 256
 
+    // Full version string of the loaded Hamlib library.
+    static var hamlibVersion: String {
+        jttyrig_hamlib_version().map { String(cString: $0) } ?? "Unknown"
+    }
+
+    // Path of the Hamlib dynamic library that was actually loaded.
+    static var hamlibLibraryPath: String {
+        jttyrig_hamlib_path().map { String(cString: $0) } ?? "Unknown"
+    }
+
     // All transceiver models Hamlib knows how to talk to, sorted by label.
     // Loads and queries Hamlib's backend registry on first call; slow the
     // first time, so call this off the main thread.

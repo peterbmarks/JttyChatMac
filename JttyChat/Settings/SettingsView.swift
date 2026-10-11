@@ -94,6 +94,18 @@ struct SettingsView: View {
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }
+
+                    LabeledContent("Hamlib Version:") {
+                        Text(RigController.hamlibVersion)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    LabeledContent("Hamlib Library:") {
+                        Text(RigController.hamlibLibraryPath)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 .padding(8)
             }
