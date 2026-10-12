@@ -5,6 +5,7 @@
 #include <ctype.h>
 #include <dlfcn.h>
 #include <pthread.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,6 +20,53 @@
 // Frameworks folder plus the usual Homebrew/MacPorts/Fink locations - and
 // keeps whichever reports the newest version. <hamlib/rig.h> is only used
 // for types and to declare the function pointers below.
+
+// MARK: - Logging
+
+static JttyLogHandler logHandler = NULL;
+static int debugLevel = RIG_DEBUG_TRACE;
+
+void jttyrig_set_log_handler(JttyLogHandler handler)
+{
+    logHandler = handler;
+}
+
+// Logs one of JttyChat's own messages (as opposed to one from Hamlib).
+static void appLog(int level, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
+static void appLog(int level, const char *fmt, ...)
+{
+    const JttyLogHandler handler = logHandler;
+    if (!handler)
+        return;
+
+    char *message = NULL;
+    va_list ap;
+    va_start(ap, fmt);
+    const int length = vasprintf(&message, fmt, ap);
+    va_end(ap);
+    if (length >= 0 && message) {
+        handler(level, message, true);
+        free(message);
+    }
+}
+
+// Installed with rig_set_debug_callback(); Hamlib has already filtered by
+// debug level before calling this.
+static int hamlibDebugCallback(enum rig_debug_level_e level, rig_ptr_t arg, const char *fmt,
+                               va_list ap)
+{
+    (void)arg;
+    const JttyLogHandler handler = logHandler;
+    if (!handler)
+        return 0;
+
+    char *message = NULL;
+    if (vasprintf(&message, fmt, ap) >= 0 && message) {
+        handler((int)level, message, false);
+        free(message);
+    }
+    return 0;
+}
 
 // MARK: - Dynamic loading
 
@@ -37,6 +85,7 @@ static const char *const kHamlibCandidates[] = {
 // Every Hamlib entry point used in this file, resolved with dlsym().
 struct HamlibAPI {
     __typeof__(rig_set_debug) *rig_set_debug;
+    __typeof__(rig_set_debug_callback) *rig_set_debug_callback;
     __typeof__(rig_load_all_backends) *rig_load_all_backends;
     __typeof__(rig_list_foreach) *rig_list_foreach;
     __typeof__(rig_init) *rig_init;
@@ -111,6 +160,7 @@ static bool resolveAPI(void *handle, struct HamlibAPI *api)
         return false;
 
     RESOLVE(rig_set_debug)
+    RESOLVE(rig_set_debug_callback)
     RESOLVE(rig_load_all_backends)
     RESOLVE(rig_list_foreach)
     RESOLVE(rig_init)
@@ -142,8 +192,11 @@ static void loadHamlib(void)
         // RTLD_LOCAL keeps each copy's symbols out of the global namespace,
         // so several versions can be open side by side while we compare.
         void *handle = dlopen(kHamlibCandidates[i], RTLD_LAZY | RTLD_LOCAL);
-        if (!handle)
+        if (!handle) {
+            appLog(RIG_DEBUG_VERBOSE, "Hamlib not loaded from %s: %s", kHamlibCandidates[i],
+                   dlerror());
             continue;
+        }
 
         // Two paths can resolve to the same image (e.g. Homebrew's opt/
         // and lib/ symlinks); dlopen hands back the same handle for both.
@@ -155,9 +208,12 @@ static void loadHamlib(void)
         struct HamlibAPI api = {0};
         const char *version = versionOfLibrary(handle);
         if (!version || !resolveAPI(handle, &api)) {
+            appLog(RIG_DEBUG_WARN, "Ignoring %s: not a usable Hamlib (missing symbols)",
+                   kHamlibCandidates[i]);
             dlclose(handle);
             continue;
         }
+        appLog(RIG_DEBUG_VERBOSE, "Found %s at %s", version, kHamlibCandidates[i]);
 
         if (!bestHandle || compareVersions(version, bestVersion) > 0) {
             if (bestHandle)
@@ -170,8 +226,10 @@ static void loadHamlib(void)
         }
     }
 
-    if (!bestHandle)
+    if (!bestHandle) {
+        appLog(RIG_DEBUG_ERR, "No usable Hamlib library found.");
         return;
+    }
 
     hl = bestAPI;
     hlVersion = bestVersion;
@@ -182,10 +240,11 @@ static void loadHamlib(void)
     Dl_info info;
     if (dladdr((const void *)hl.rig_init, &info) && info.dli_fname)
         hlPath = strdup(info.dli_fname);
+    appLog(RIG_DEBUG_VERBOSE, "Using %s from %s", hlVersion, hlPath ? hlPath : "unknown path");
 
-    // Hamlib logs a line per backend as it loads them; we don't want that
-    // on stdout/stderr every time the app starts.
-    hl.rig_set_debug(RIG_DEBUG_NONE);
+    // Route Hamlib's debug output to the log handler instead of stderr.
+    hl.rig_set_debug_callback(hamlibDebugCallback, NULL);
+    hl.rig_set_debug((enum rig_debug_level_e)debugLevel);
 }
 
 static bool ensureHamlib(void)
@@ -194,9 +253,31 @@ static bool ensureHamlib(void)
     return hlLoaded;
 }
 
+void jttyrig_set_debug_level(int level)
+{
+    debugLevel = level;
+    if (ensureHamlib())
+        hl.rig_set_debug((enum rig_debug_level_e)level);
+}
+
 static const char *errorText(int retcode)
 {
     return hl.rigerror2 ? hl.rigerror2(retcode) : hl.rigerror(retcode);
+}
+
+// Logs a failed Hamlib call with rigerror()'s full text, which appends
+// Hamlib's saved trail of recent debug messages leading up to the error -
+// much more than the one-line errorText() shown in the UI.
+static void logRigError(const char *what, int retcode)
+{
+    // rigerror2()'s text ends in a newline; leave it off the headline.
+    const char *summary = errorText(retcode);
+    int summaryLength = (int)strlen(summary);
+    while (summaryLength > 0 && summary[summaryLength - 1] == '\n')
+        summaryLength--;
+
+    appLog(RIG_DEBUG_ERR, "%s failed: %.*s (error %d)\nHamlib error trace:\n%s", what,
+           summaryLength, summary, retcode, hl.rigerror(retcode));
 }
 
 static const char *const kNotFoundMessage = "Hamlib library not found.";
@@ -238,10 +319,14 @@ JttyRigInfo *jttyrig_list_models(int *outCount)
     if (!ensureHamlib())
         return NULL;
 
+    // Registering every backend logs a line per rig model; keep that out
+    // of the log.
+    hl.rig_set_debug(RIG_DEBUG_NONE);
     hl.rig_load_all_backends();
 
     struct RigCollectContext ctx = {0};
     hl.rig_list_foreach(collectRig, &ctx);
+    hl.rig_set_debug((enum rig_debug_level_e)debugLevel);
 
     qsort(ctx.items, (size_t)ctx.count, sizeof(JttyRigInfo), compareRigs);
     *outCount = ctx.count;
@@ -281,9 +366,13 @@ static RIG *openRig(int model, const char *port, const char *baudRate, char *out
         return NULL;
     }
 
+    appLog(RIG_DEBUG_VERBOSE, "Opening rig model %d on port \"%s\" at baud rate %s", model,
+           port ? port : "", baudRate ? baudRate : "Default");
+
     RIG *rig = hl.rig_init((rig_model_t)model);
     if (!rig) {
         snprintf(outError, (size_t)outErrorSize, "Could not initialize this rig model.");
+        appLog(RIG_DEBUG_ERR, "rig_init(%d) failed: %s", model, outError);
         return NULL;
     }
 
@@ -291,6 +380,7 @@ static RIG *openRig(int model, const char *port, const char *baudRate, char *out
         const int retcode = setConf(rig, "rig_pathname", port);
         if (retcode != RIG_OK) {
             snprintf(outError, (size_t)outErrorSize, "Could not set port: %s", errorText(retcode));
+            logRigError("Setting port", retcode);
             hl.rig_cleanup(rig);
             return NULL;
         }
@@ -301,16 +391,18 @@ static RIG *openRig(int model, const char *port, const char *baudRate, char *out
     if (baudRate && baudRate[0] != '\0') {
         char *end = NULL;
         strtol(baudRate, &end, 10);
-        if (end != baudRate && *end == '\0')
-            setConf(rig, "serial_speed", baudRate);
+        if (end != baudRate && *end == '\0' && setConf(rig, "serial_speed", baudRate) != RIG_OK)
+            appLog(RIG_DEBUG_VERBOSE, "Serial speed not applicable to this rig/port; ignored.");
     }
 
     const int retcode = hl.rig_open(rig);
     if (retcode != RIG_OK) {
         snprintf(outError, (size_t)outErrorSize, "Connection failed: %s", errorText(retcode));
+        logRigError("rig_open", retcode);
         hl.rig_cleanup(rig);
         return NULL;
     }
+    appLog(RIG_DEBUG_VERBOSE, "Rig opened.");
     return rig;
 }
 
@@ -326,6 +418,7 @@ bool jttyrig_connect_and_query(int model, const char *port, const char *baudRate
     if (retcode != RIG_OK) {
         snprintf(outMessage, (size_t)outMessageSize, "Connected, but could not read frequency: %s",
                   errorText(retcode));
+        logRigError("rig_get_freq", retcode);
         hl.rig_close(rig);
         hl.rig_cleanup(rig);
         return false;
@@ -334,6 +427,8 @@ bool jttyrig_connect_and_query(int model, const char *port, const char *baudRate
     rmode_t mode = RIG_MODE_NONE;
     pbwidth_t width = 0;
     const int modeRetcode = hl.rig_get_mode(rig, RIG_VFO_CURR, &mode, &width);
+    if (modeRetcode != RIG_OK)
+        logRigError("rig_get_mode", modeRetcode);
 
     hl.rig_close(rig);
     hl.rig_cleanup(rig);
@@ -349,6 +444,7 @@ bool jttyrig_connect_and_query(int model, const char *port, const char *baudRate
     }
 
     snprintf(outMessage, (size_t)outMessageSize, "%.6f MHz  %s", freq / 1.0e6, modeText);
+    appLog(RIG_DEBUG_VERBOSE, "Rig reports %s", outMessage);
     return true;
 }
 
@@ -359,6 +455,7 @@ bool jttyrig_set_ptt(int model, const char *port, const char *baudRate, bool on,
     if (!rig)
         return false;
 
+    appLog(RIG_DEBUG_VERBOSE, "Setting PTT %s", on ? "on" : "off");
     const int retcode = hl.rig_set_ptt(rig, RIG_VFO_CURR, on ? RIG_PTT_ON : RIG_PTT_OFF);
     hl.rig_close(rig);
     hl.rig_cleanup(rig);
@@ -366,6 +463,7 @@ bool jttyrig_set_ptt(int model, const char *port, const char *baudRate, bool on,
     if (retcode != RIG_OK) {
         snprintf(outError, (size_t)outErrorSize, "PTT %s failed: %s", on ? "on" : "off",
                   errorText(retcode));
+        logRigError(on ? "rig_set_ptt(on)" : "rig_set_ptt(off)", retcode);
         return false;
     }
     return true;
@@ -378,12 +476,14 @@ bool jttyrig_set_frequency(int model, const char *port, const char *baudRate, do
     if (!rig)
         return false;
 
+    appLog(RIG_DEBUG_VERBOSE, "Setting frequency to %.6f MHz", freqHz / 1.0e6);
     const int retcode = hl.rig_set_freq(rig, RIG_VFO_CURR, freqHz);
     hl.rig_close(rig);
     hl.rig_cleanup(rig);
 
     if (retcode != RIG_OK) {
         snprintf(outError, (size_t)outErrorSize, "Set frequency failed: %s", errorText(retcode));
+        logRigError("rig_set_freq", retcode);
         return false;
     }
     return true;

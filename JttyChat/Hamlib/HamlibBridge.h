@@ -62,6 +62,21 @@ const char *jttyrig_hamlib_version(void);
 // or NULL if it can't be determined. The returned string is owned by dyld.
 const char *jttyrig_hamlib_path(void);
 
+// Receives every Hamlib debug message at or below the current debug level,
+// plus JttyChat's own notes about what it's asking the rig to do
+// (fromApp = true). level is a Hamlib rig_debug_level_e value (1 = bug,
+// 2 = error, 3 = warning, 4 = verbose, 5 = trace, 6 = cache). message may
+// span several lines. Called on whatever thread is talking to Hamlib, so
+// the handler must be thread-safe; message is only valid during the call.
+typedef void (*JttyLogHandler)(int level, const char *message, bool fromApp);
+
+// Installs the log handler. Call once at startup, before any other
+// jttyrig_ function, so the library search is logged too.
+void jttyrig_set_log_handler(JttyLogHandler handler);
+
+// Sets how much Hamlib logs (a rig_debug_level_e value; 0 = nothing).
+void jttyrig_set_debug_level(int level);
+
 #ifdef __cplusplus
 }
 #endif
