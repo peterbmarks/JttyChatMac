@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// The Settings window: callsign, audio input/output device choice, and a
-/// Transceiver section for Hamlib rig control (model, port, baud rate, and
+/// Transceiver section for Hamlib rig control (model, port, serial line
+/// settings - baud rate, data/stop bits, parity, handshake, DTR/RTS - and
 /// a Connect button that shows the rig's current frequency/mode). Ported
 /// from JttyChatLinux/src/SettingsDialog.{h,cpp}.
 ///
@@ -27,7 +28,11 @@ struct SettingsView: View {
     @State private var selectedRigModel: Int?
     @State private var rigPort = ""
     @State private var discoveredPorts: [String] = []
-    @State private var rigBaudRate = AppSettings.defaultBaudRate
+    @State private var rigSerial = RigSerialConfig()
+    // The selected model's own default for each serial setting, shown as
+    // "Default (8)" etc.; empty until looked up, or for models without a
+    // serial port.
+    @State private var rigSerialDefaults: [RigSerialSetting: String] = [:]
 
     @State private var isConnecting = false
     @State private var rigStatusText = ""
@@ -76,9 +81,12 @@ struct SettingsView: View {
                         .help("Choose a detected port")
                     }
 
-                    Picker("Rig Baud Rate:", selection: $rigBaudRate) {
-                        ForEach(AppSettings.baudRates, id: \.self) { rate in
-                            Text(rate).tag(rate)
+                    ForEach(RigSerialSetting.allCases) { setting in
+                        Picker(setting.label, selection: $rigSerial[setting]) {
+                            Text(defaultLabel(for: setting)).tag(RigSerialConfig.defaultValue)
+                            ForEach(setting.options, id: \.self) { value in
+                                Text(setting.displayName(for: value)).tag(value)
+                            }
                         }
                     }
 
@@ -122,6 +130,28 @@ struct SettingsView: View {
         .frame(width: 420)
         .fixedSize(horizontal: false, vertical: true)
         .onAppear { loadState() }
+        .onChange(of: selectedRigModel) { _, model in
+            loadSerialDefaults(model: model)
+        }
+    }
+
+    private func defaultLabel(for setting: RigSerialSetting) -> String {
+        guard let value = rigSerialDefaults[setting] else { return RigSerialConfig.defaultValue }
+        return "\(RigSerialConfig.defaultValue) (\(setting.displayName(for: value)))"
+    }
+
+    private func loadSerialDefaults(model: Int?) {
+        rigSerialDefaults = [:]
+        guard let model else { return }
+        Task.detached {
+            let defaults = RigController.serialDefaults(model: model)
+            await MainActor.run {
+                // Ignore a lookup for a model that's since been changed.
+                if self.selectedRigModel == model {
+                    self.rigSerialDefaults = defaults
+                }
+            }
+        }
     }
 
     private func loadState() {
@@ -136,7 +166,7 @@ struct SettingsView: View {
 
         selectedRigModel = settings.rigModel
         rigPort = settings.rigPort
-        rigBaudRate = settings.rigBaudRate.isEmpty ? AppSettings.defaultBaudRate : settings.rigBaudRate
+        rigSerial = settings.rigSerial
         discoveredPorts = Self.listSerialPorts()
 
         isLoadingRigs = true
@@ -157,13 +187,13 @@ struct SettingsView: View {
         }
 
         let port = rigPort.trimmingCharacters(in: .whitespaces)
-        let baudRate = rigBaudRate
+        let serial = rigSerial
         isConnecting = true
         rigStatusIsError = false
         rigStatusText = "Connecting..."
 
         Task.detached {
-            let result = RigController.connectAndQuery(model: model, port: port, baudRate: baudRate)
+            let result = RigController.connectAndQuery(model: model, port: port, serial: serial)
             await MainActor.run {
                 self.rigStatusText = result.message
                 self.rigStatusIsError = !result.success
@@ -180,7 +210,7 @@ struct SettingsView: View {
         settings.audioOutputDeviceUID = selectedOutputUID
         settings.rigModel = selectedRigModel
         settings.rigPort = rigPort.trimmingCharacters(in: .whitespaces)
-        settings.rigBaudRate = rigBaudRate
+        settings.rigSerial = rigSerial
         settings.save()
 
         // Audio device choices may have changed; restart capture against

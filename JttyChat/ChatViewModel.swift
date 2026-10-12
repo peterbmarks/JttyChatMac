@@ -329,7 +329,7 @@ final class ChatViewModel: ObservableObject {
         let outputDeviceID = settings.resolvedOutputDevice()?.id
 
         if let rig {
-            Task.detached { _ = RigController.setPTT(model: rig.model, port: rig.port, baudRate: rig.baudRate, on: true) }
+            Task.detached { _ = RigController.setPTT(model: rig.model, port: rig.port, serial: rig.serial, on: true) }
         }
 
         let leadMs = rig != nil ? Self.pttLeadMs : 0
@@ -346,7 +346,7 @@ final class ChatViewModel: ObservableObject {
 
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(totalMs)) { [weak self] in
             if let rig {
-                Task.detached { _ = RigController.setPTT(model: rig.model, port: rig.port, baudRate: rig.baudRate, on: false) }
+                Task.detached { _ = RigController.setPTT(model: rig.model, port: rig.port, serial: rig.serial, on: false) }
             }
             self?.isSending = false
         }
@@ -360,7 +360,7 @@ final class ChatViewModel: ObservableObject {
             return
         }
         Task.detached {
-            if let error = RigController.setFrequency(model: rig.model, port: rig.port, baudRate: rig.baudRate,
+            if let error = RigController.setFrequency(model: rig.model, port: rig.port, serial: rig.serial,
                                                          freqHz: freqMHz * 1.0e6) {
                 await MainActor.run { self.alertMessage = error }
             }

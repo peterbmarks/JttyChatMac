@@ -25,29 +25,41 @@ void jttyrig_free_list(JttyRigInfo *list, int count);
 
 // Opens the given rig model on the given port (a serial device path, or a
 // "host:port" address for the "Hamlib NET rigctl" model), reads its current
-// frequency and mode, then closes it again. baudRate is one of the strings
-// offered by the Settings window's baud rate menu ("Default" to leave it at
-// the rig backend's default). Blocks for as long as Hamlib takes to open
-// the port and respond (or time out) - call this off the main thread.
+// frequency and mode, then closes it again. Blocks for as long as Hamlib
+// takes to open the port and respond (or time out) - call this off the main
+// thread.
+//
+// serialConfig, here and below, is a newline-separated list of Hamlib
+// configuration settings to apply before opening, e.g.
+// "serial_speed=9600\ndata_bits=8\nserial_handshake=None". Anything left
+// out keeps the rig backend's default. May be NULL.
 //
 // On success, fills outMessage with "<freq> MHz  <mode>" and returns true.
 // On failure, fills outMessage with an error description and returns
 // false. outMessage must be a caller-supplied buffer of outMessageSize
 // bytes.
-bool jttyrig_connect_and_query(int model, const char *port, const char *baudRate,
+bool jttyrig_connect_and_query(int model, const char *port, const char *serialConfig,
                                 char *outMessage, int outMessageSize);
 
 // Opens the rig just long enough to key or unkey PTT, then closes it again.
 // Meant to run off the main thread. Returns true on success; on failure,
 // fills outError (a caller-supplied buffer) and returns false.
-bool jttyrig_set_ptt(int model, const char *port, const char *baudRate, bool on, char *outError,
+bool jttyrig_set_ptt(int model, const char *port, const char *serialConfig, bool on, char *outError,
                       int outErrorSize);
 
 // Opens the rig just long enough to set its current VFO frequency (in Hz),
 // then closes it again. Meant to run off the main thread. Returns true on
 // success; on failure, fills outError and returns false.
-bool jttyrig_set_frequency(int model, const char *port, const char *baudRate, double freqHz,
+bool jttyrig_set_frequency(int model, const char *port, const char *serialConfig, double freqHz,
                             char *outError, int outErrorSize);
+
+// Looks up a rig model's default value for each of the newline-separated
+// Hamlib configuration setting names in names (e.g.
+// "data_bits\nstop_bits"), without opening the rig. Fills outValues with
+// the values in the same order, one per line, with an empty line for any
+// the model doesn't have. Returns false if Hamlib or the model couldn't be
+// loaded.
+bool jttyrig_get_default_conf(int model, const char *names, char *outValues, int outValuesSize);
 
 // Hamlib is loaded at runtime on first use: the copy embedded in the app
 // bundle and any externally installed copies are compared, and the newest

@@ -94,6 +94,10 @@ struct HamlibAPI {
     __typeof__(rig_cleanup) *rig_cleanup;
     __typeof__(rig_token_lookup) *rig_token_lookup;
     __typeof__(rig_set_conf) *rig_set_conf;
+    // Fallback for libraries without rig_get_conf2(); spelled out rather
+    // than __typeof__'d because the header marks it deprecated.
+    int (*rig_get_conf)(RIG *rig, hamlib_token_t token, char *val);
+    __typeof__(rig_get_conf2) *rig_get_conf2; // Optional; only in newer Hamlib 4.x.
     __typeof__(rig_get_freq) *rig_get_freq;
     __typeof__(rig_set_freq) *rig_set_freq;
     __typeof__(rig_get_mode) *rig_get_mode;
@@ -169,6 +173,7 @@ static bool resolveAPI(void *handle, struct HamlibAPI *api)
     RESOLVE(rig_cleanup)
     RESOLVE(rig_token_lookup)
     RESOLVE(rig_set_conf)
+    RESOLVE(rig_get_conf)
     RESOLVE(rig_get_freq)
     RESOLVE(rig_set_freq)
     RESOLVE(rig_get_mode)
@@ -178,6 +183,7 @@ static bool resolveAPI(void *handle, struct HamlibAPI *api)
 #undef RESOLVE
 
     api->rigerror2 = (__typeof__(api->rigerror2))dlsym(handle, "rigerror2");
+    api->rig_get_conf2 = (__typeof__(api->rig_get_conf2))dlsym(handle, "rig_get_conf2");
     return true;
 }
 
@@ -355,10 +361,40 @@ static int setConf(RIG *rig, const char *name, const char *value)
     return hl.rig_set_conf(rig, token, value);
 }
 
-// Initializes and opens a rig, applying the given port/baud. On failure,
-// returns NULL and fills outError; the caller owns the returned RIG on
-// success and must rig_close()+rig_cleanup() it.
-static RIG *openRig(int model, const char *port, const char *baudRate, char *outError,
+// Applies serialConfig's "name=value" lines (see HamlibBridge.h) to rig.
+// Failures are logged and otherwise ignored: a network rig has no serial
+// line to configure, and a bad value shouldn't stop the rig opening with
+// its defaults.
+static void applySerialConfig(RIG *rig, const char *serialConfig)
+{
+    if (!serialConfig)
+        return;
+
+    char *copy = strdup(serialConfig);
+    char *cursor = copy;
+    char *line;
+    while ((line = strsep(&cursor, "\n")) != NULL) {
+        char *equals = strchr(line, '=');
+        if (!equals || equals == line)
+            continue;
+        *equals = '\0';
+        const char *name = line;
+        const char *value = equals + 1;
+
+        const int retcode = setConf(rig, name, value);
+        if (retcode == RIG_OK)
+            appLog(RIG_DEBUG_VERBOSE, "Set %s = %s", name, value);
+        else
+            appLog(RIG_DEBUG_WARN, "Couldn't set %s = %s (%s); using the rig's default", name, value,
+                   errorText(retcode));
+    }
+    free(copy);
+}
+
+// Initializes and opens a rig, applying the given port and serial settings.
+// On failure, returns NULL and fills outError; the caller owns the returned
+// RIG on success and must rig_close()+rig_cleanup() it.
+static RIG *openRig(int model, const char *port, const char *serialConfig, char *outError,
                      int outErrorSize)
 {
     if (!ensureHamlib()) {
@@ -366,8 +402,7 @@ static RIG *openRig(int model, const char *port, const char *baudRate, char *out
         return NULL;
     }
 
-    appLog(RIG_DEBUG_VERBOSE, "Opening rig model %d on port \"%s\" at baud rate %s", model,
-           port ? port : "", baudRate ? baudRate : "Default");
+    appLog(RIG_DEBUG_VERBOSE, "Opening rig model %d on port \"%s\"", model, port ? port : "");
 
     RIG *rig = hl.rig_init((rig_model_t)model);
     if (!rig) {
@@ -386,14 +421,7 @@ static RIG *openRig(int model, const char *port, const char *baudRate, char *out
         }
     }
 
-    // "Default" (or anything non-numeric) leaves the backend's default.
-    // Errors are ignored: network rigs have no serial speed to set.
-    if (baudRate && baudRate[0] != '\0') {
-        char *end = NULL;
-        strtol(baudRate, &end, 10);
-        if (end != baudRate && *end == '\0' && setConf(rig, "serial_speed", baudRate) != RIG_OK)
-            appLog(RIG_DEBUG_VERBOSE, "Serial speed not applicable to this rig/port; ignored.");
-    }
+    applySerialConfig(rig, serialConfig);
 
     const int retcode = hl.rig_open(rig);
     if (retcode != RIG_OK) {
@@ -406,10 +434,10 @@ static RIG *openRig(int model, const char *port, const char *baudRate, char *out
     return rig;
 }
 
-bool jttyrig_connect_and_query(int model, const char *port, const char *baudRate,
+bool jttyrig_connect_and_query(int model, const char *port, const char *serialConfig,
                                 char *outMessage, int outMessageSize)
 {
-    RIG *rig = openRig(model, port, baudRate, outMessage, outMessageSize);
+    RIG *rig = openRig(model, port, serialConfig, outMessage, outMessageSize);
     if (!rig)
         return false;
 
@@ -448,10 +476,10 @@ bool jttyrig_connect_and_query(int model, const char *port, const char *baudRate
     return true;
 }
 
-bool jttyrig_set_ptt(int model, const char *port, const char *baudRate, bool on, char *outError,
+bool jttyrig_set_ptt(int model, const char *port, const char *serialConfig, bool on, char *outError,
                       int outErrorSize)
 {
-    RIG *rig = openRig(model, port, baudRate, outError, outErrorSize);
+    RIG *rig = openRig(model, port, serialConfig, outError, outErrorSize);
     if (!rig)
         return false;
 
@@ -469,10 +497,10 @@ bool jttyrig_set_ptt(int model, const char *port, const char *baudRate, bool on,
     return true;
 }
 
-bool jttyrig_set_frequency(int model, const char *port, const char *baudRate, double freqHz,
+bool jttyrig_set_frequency(int model, const char *port, const char *serialConfig, double freqHz,
                             char *outError, int outErrorSize)
 {
-    RIG *rig = openRig(model, port, baudRate, outError, outErrorSize);
+    RIG *rig = openRig(model, port, serialConfig, outError, outErrorSize);
     if (!rig)
         return false;
 
@@ -486,6 +514,56 @@ bool jttyrig_set_frequency(int model, const char *port, const char *baudRate, do
         logRigError("rig_set_freq", retcode);
         return false;
     }
+    return true;
+}
+
+// MARK: - Defaults
+
+bool jttyrig_get_default_conf(int model, const char *names, char *outValues, int outValuesSize)
+{
+    if (outValuesSize <= 0)
+        return false;
+    outValues[0] = '\0';
+    if (!ensureHamlib() || !names)
+        return false;
+
+    // rig_init() logs a couple of dozen lines at Trace level; this is only
+    // a lookup, so keep it out of the Hamlib Log.
+    hl.rig_set_debug(RIG_DEBUG_NONE);
+    RIG *rig = hl.rig_init((rig_model_t)model);
+    if (!rig) {
+        hl.rig_set_debug((enum rig_debug_level_e)debugLevel);
+        return false;
+    }
+
+    char *copy = strdup(names);
+    char *cursor = copy;
+    char *name;
+    size_t used = 0;
+    while ((name = strsep(&cursor, "\n")) != NULL) {
+        if (name[0] == '\0')
+            continue;
+
+        // Sized well beyond any serial setting's value; rig_get_conf()
+        // (for libraries without rig_get_conf2()) has no length argument.
+        char value[256] = "";
+        const hamlib_token_t token = hl.rig_token_lookup(rig, name);
+        if (token != RIG_CONF_END) {
+            if (hl.rig_get_conf2)
+                hl.rig_get_conf2(rig, token, value, (int)sizeof(value));
+            else
+                hl.rig_get_conf(rig, token, value);
+        }
+
+        const int written = snprintf(outValues + used, (size_t)outValuesSize - used, "%s\n", value);
+        if (written < 0 || used + (size_t)written >= (size_t)outValuesSize)
+            break;
+        used += (size_t)written;
+    }
+    free(copy);
+
+    hl.rig_cleanup(rig);
+    hl.rig_set_debug((enum rig_debug_level_e)debugLevel);
     return true;
 }
 

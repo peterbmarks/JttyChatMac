@@ -11,6 +11,24 @@ private enum SettingsKey {
     static let rigModel = "Transceiver.rigModel"
     static let rigPort = "Transceiver.rigPort"
     static let rigBaudRate = "Transceiver.rigBaudRate"
+    static let rigDataBits = "Transceiver.rigDataBits"
+    static let rigStopBits = "Transceiver.rigStopBits"
+    static let rigParity = "Transceiver.rigParity"
+    static let rigHandshake = "Transceiver.rigHandshake"
+    static let rigDTRState = "Transceiver.rigDTRState"
+    static let rigRTSState = "Transceiver.rigRTSState"
+
+    static func key(for setting: RigSerialSetting) -> String {
+        switch setting {
+        case .baudRate: rigBaudRate
+        case .dataBits: rigDataBits
+        case .stopBits: rigStopBits
+        case .parity: rigParity
+        case .handshake: rigHandshake
+        case .dtrState: rigDTRState
+        case .rtsState: rigRTSState
+        }
+    }
     static let capitalizeMessages = "capitalizeMessages"
     static let appendCallsign = "appendCallsign"
     static let macros = "macros"
@@ -22,15 +40,15 @@ struct Macro: Codable, Equatable {
     var message: String
 }
 
-/// The transceiver configuration needed to transmit: rig model/port/baud
-/// for PTT and frequency control. Ported from MainWindow.cpp's
+/// The transceiver configuration needed to transmit: rig model/port/serial
+/// settings for PTT and frequency control. Ported from MainWindow.cpp's
 /// loadRigTxSettings() free function - reloaded fresh from disk at
 /// transmit/tune time rather than cached, so Settings changes apply
 /// immediately without restarting anything rig-related.
 struct RigTxSettings {
     let model: Int
     let port: String
-    let baudRate: String
+    let serial: RigSerialConfig
 }
 
 /// Persisted application settings (callsign + transceiver config). Ported
@@ -38,15 +56,12 @@ struct RigTxSettings {
 final class AppSettings: ObservableObject {
     static let shared = AppSettings()
 
-    static let defaultBaudRate = "Default"
-    static let baudRates = [defaultBaudRate, "1200", "2400", "4800", "9600", "19200", "38400", "57600", "115200"]
-
     @Published var callsign: String
     @Published var audioInputDeviceUID: String?
     @Published var audioOutputDeviceUID: String?
     @Published var rigModel: Int?
     @Published var rigPort: String
-    @Published var rigBaudRate: String
+    @Published var rigSerial: RigSerialConfig
     @Published var capitalizeMessages: Bool
     @Published var appendCallsign: Bool
 
@@ -65,10 +80,18 @@ final class AppSettings: ObservableObject {
         audioOutputDeviceUID = defaults.string(forKey: SettingsKey.audioOutputDeviceUID)
         rigModel = defaults.object(forKey: SettingsKey.rigModel) as? Int
         rigPort = defaults.string(forKey: SettingsKey.rigPort) ?? ""
-        rigBaudRate = defaults.string(forKey: SettingsKey.rigBaudRate) ?? Self.defaultBaudRate
+        rigSerial = Self.loadRigSerial(from: defaults)
         capitalizeMessages = defaults.bool(forKey: SettingsKey.capitalizeMessages)
         appendCallsign = defaults.bool(forKey: SettingsKey.appendCallsign)
         macros = Self.loadMacros(from: defaults)
+    }
+
+    private static func loadRigSerial(from defaults: UserDefaults) -> RigSerialConfig {
+        var serial = RigSerialConfig()
+        for setting in RigSerialSetting.allCases {
+            serial[setting] = defaults.string(forKey: SettingsKey.key(for: setting)) ?? RigSerialConfig.defaultValue
+        }
+        return serial
     }
 
     // Always returns exactly macroCount macros, filling any missing slots
@@ -100,7 +123,9 @@ final class AppSettings: ObservableObject {
             defaults.removeObject(forKey: SettingsKey.rigModel)
         }
         defaults.set(rigPort.trimmingCharacters(in: .whitespaces), forKey: SettingsKey.rigPort)
-        defaults.set(rigBaudRate, forKey: SettingsKey.rigBaudRate)
+        for setting in RigSerialSetting.allCases {
+            defaults.set(rigSerial[setting], forKey: SettingsKey.key(for: setting))
+        }
         defaults.set(capitalizeMessages, forKey: SettingsKey.capitalizeMessages)
         defaults.set(appendCallsign, forKey: SettingsKey.appendCallsign)
     }
@@ -124,7 +149,6 @@ final class AppSettings: ObservableObject {
         guard let model = defaults.object(forKey: SettingsKey.rigModel) as? Int else { return nil }
         let port = (defaults.string(forKey: SettingsKey.rigPort) ?? "").trimmingCharacters(in: .whitespaces)
         guard !port.isEmpty else { return nil }
-        let baudRate = defaults.string(forKey: SettingsKey.rigBaudRate) ?? Self.defaultBaudRate
-        return RigTxSettings(model: model, port: port, baudRate: baudRate)
+        return RigTxSettings(model: model, port: port, serial: Self.loadRigSerial(from: defaults))
     }
 }
