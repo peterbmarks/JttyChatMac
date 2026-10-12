@@ -2,6 +2,7 @@ import AppKit
 import AVFoundation
 import AudioToolbox
 import CoreAudio
+import os
 
 // Ported from JttyChatLinux's use of Qt Multimedia (QAudioSource/QAudioSink
 // in MainWindow.cpp): capture mono 12 kHz Int16 PCM for the JTTY decoder,
@@ -11,7 +12,8 @@ import CoreAudio
 /// Continuously captures from a chosen (or default) input device and
 /// delivers mono 12 kHz Int16 PCM chunks as they arrive.
 final class CaptureEngine {
-    private let engine = AVAudioEngine()
+    // Replaced with a fresh instance on every start(); see there.
+    private var engine = AVAudioEngine()
     private let targetFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: Double(Jtty.rxSampleRate),
                                               channels: 1, interleaved: true)!
     private var converter: AVAudioConverter?
@@ -32,22 +34,53 @@ final class CaptureEngine {
     var onNeedsRestart: (() -> Void)?
 
     enum CaptureError: LocalizedError {
-        case unusableInputFormat(AVAudioFormat)
+        case unusableInputFormat(AVAudioFormat, diagnostics: String)
+        case startFailed(Error, diagnostics: String)
 
         var errorDescription: String? {
             switch self {
-            case .unusableInputFormat(let format):
+            case .unusableInputFormat(let format, _):
                 return "The audio input reported an unusable format (\(format.sampleRate) Hz, "
                     + "\(format.channelCount) ch)."
+            case .startFailed(let error, _):
+                return error.localizedDescription
+            }
+        }
+
+        /// What the device and engine looked like when this failed - worth
+        /// including in a bug report.
+        var diagnostics: String {
+            switch self {
+            case .unusableInputFormat(_, let diagnostics), .startFailed(_, let diagnostics):
+                return diagnostics
             }
         }
     }
 
+    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "JttyChat", category: "Audio")
+
     private var isTapInstalled = false
+    // The device and hardware format capture was started with, so a
+    // configuration-change notification can be checked for whether
+    // anything actually changed (see observeInterruptions()).
+    private var startedSignature: InputSignature?
+    // Cleared on each start; set when the tap delivers its first buffer, so
+    // the log shows whether audio is actually arriving.
+    private var hasReceivedAudio = false
     private var notificationObservers: [(NotificationCenter, NSObjectProtocol)] = []
 
     func start(deviceID: AudioDeviceID?) throws {
         stop()
+
+        // Build a new engine for every attempt rather than reusing one. An
+        // AVAudioEngine caches its input node's format the first time it's
+        // asked, and keeps it after the device changes underneath it (a
+        // different device chosen in Settings, a USB interface coming back
+        // from sleep, or another app such as WSJT-X switching the device's
+        // sample rate). start() then fails with -10868
+        // (kAudioUnitErr_FormatNotSupported), and keeps failing on every
+        // retry, because the stale format never gets refreshed.
+        engine = AVAudioEngine()
 
         if let deviceID {
             try Self.setDevice(deviceID, on: engine.inputNode.audioUnit)
@@ -62,7 +95,9 @@ final class CaptureEngine {
         // permanent failure - so refuse it and let the caller retry once
         // the device has settled.
         guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
-            throw CaptureError.unusableInputFormat(inputFormat)
+            let error = CaptureError.unusableInputFormat(inputFormat, diagnostics: diagnostics(error: nil))
+            Self.logger.error("Capture start failed: \(error.localizedDescription, privacy: .public) \(error.diagnostics, privacy: .public)")
+            throw error
         }
 
         // format: nil means "whatever this bus is really producing".
@@ -70,15 +105,84 @@ final class CaptureEngine {
         // "Failed to create tap due to format mismatch" - an uncaught
         // Objective-C exception, so a hard crash - once the device came
         // back from sleep at a different sample rate than it left at.
+        hasReceivedAudio = false
         input.installTap(onBus: 0, bufferSize: 2048, format: nil) { [weak self] buffer, _ in
             self?.convertAndEmit(buffer)
         }
         isTapInstalled = true
 
         engine.prepare()
-        try engine.start()
+        do {
+            try engine.start()
+        } catch {
+            let captureError = CaptureError.startFailed(error, diagnostics: diagnostics(error: error))
+            Self.logger.error("Capture start failed: \(captureError.localizedDescription, privacy: .public) \(captureError.diagnostics, privacy: .public)")
+            throw captureError
+        }
 
+        startedSignature = currentSignature()
+        Self.logger.notice("Capture started: \(self.diagnostics(error: nil), privacy: .public)")
         observeInterruptions()
+    }
+
+    // A one-paragraph snapshot of the input device and the engine's view of
+    // it. A sample-rate disagreement between "device" and "engine" here is
+    // the signature of a -10868 failure.
+    private func diagnostics(error: Error?) -> String {
+        var parts: [String] = []
+
+        let audioUnit = engine.inputNode.audioUnit
+        if let audioUnit, let deviceID = Self.currentDevice(of: audioUnit) {
+            let name = AudioDeviceLister.deviceName(for: deviceID) ?? "unknown"
+            let rate = AudioDeviceLister.nominalSampleRate(for: deviceID).map { "\(Int($0)) Hz" } ?? "unknown rate"
+            parts.append("Device: \(name) (id \(deviceID)) at \(rate)")
+        } else {
+            parts.append("Device: none")
+        }
+
+        if let audioUnit, let hardware = Self.streamFormat(of: audioUnit, scope: kAudioUnitScope_Input, element: 1) {
+            parts.append("hardware stream: \(Int(hardware.mSampleRate)) Hz, \(hardware.mChannelsPerFrame) ch")
+        }
+
+        let nodeFormat = engine.inputNode.outputFormat(forBus: 0)
+        parts.append("engine input format: \(Int(nodeFormat.sampleRate)) Hz, \(nodeFormat.channelCount) ch")
+
+        if let error {
+            let code = (error as NSError).code
+            let name = Self.audioUnitErrorName(code).map { " \($0)" } ?? ""
+            parts.append("error \((error as NSError).domain) \(code)\(name)")
+        }
+        return parts.joined(separator: "; ") + "."
+    }
+
+    private static func currentDevice(of audioUnit: AudioUnit) -> AudioDeviceID? {
+        var deviceID = AudioDeviceID(0)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let status = AudioUnitGetProperty(audioUnit, kAudioOutputUnitProperty_CurrentDevice,
+                                          kAudioUnitScope_Global, 0, &deviceID, &size)
+        return status == noErr && deviceID != 0 ? deviceID : nil
+    }
+
+    private static func streamFormat(of audioUnit: AudioUnit, scope: AudioUnitScope,
+                                     element: AudioUnitElement) -> AudioStreamBasicDescription? {
+        var format = AudioStreamBasicDescription()
+        var size = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
+        let status = AudioUnitGetProperty(audioUnit, kAudioUnitProperty_StreamFormat, scope, element, &format, &size)
+        return status == noErr ? format : nil
+    }
+
+    private static func audioUnitErrorName(_ code: Int) -> String? {
+        switch OSStatus(truncatingIfNeeded: code) {
+        case kAudioUnitErr_FormatNotSupported: "(kAudioUnitErr_FormatNotSupported)"
+        case kAudioUnitErr_FailedInitialization: "(kAudioUnitErr_FailedInitialization)"
+        case kAudioUnitErr_InvalidPropertyValue: "(kAudioUnitErr_InvalidPropertyValue)"
+        case kAudioUnitErr_CannotDoInCurrentContext: "(kAudioUnitErr_CannotDoInCurrentContext)"
+        case kAudioUnitErr_Uninitialized: "(kAudioUnitErr_Uninitialized)"
+        case kAudioUnitErr_InvalidElement: "(kAudioUnitErr_InvalidElement)"
+        case kAudioHardwareNotRunningError: "(kAudioHardwareNotRunningError)"
+        case kAudioDevicePermissionsError: "(kAudioDevicePermissionsError: microphone access denied?)"
+        default: nil
+        }
     }
 
     func stop() {
@@ -98,13 +202,58 @@ final class CaptureEngine {
             engine.stop()
         }
         converter = nil
+        startedSignature = nil
+    }
+
+    private struct InputSignature: Equatable {
+        let deviceID: AudioDeviceID
+        let sampleRate: Double
+        let channelCount: UInt32
+    }
+
+    private func currentSignature() -> InputSignature? {
+        guard let audioUnit = engine.inputNode.audioUnit,
+              let deviceID = Self.currentDevice(of: audioUnit),
+              let hardware = Self.streamFormat(of: audioUnit, scope: kAudioUnitScope_Input, element: 1) else {
+            return nil
+        }
+        return InputSignature(deviceID: deviceID, sampleRate: hardware.mSampleRate,
+                              channelCount: hardware.mChannelsPerFrame)
+    }
+
+    // Handles AVAudioEngineConfigurationChange. Every freshly built engine
+    // posts one shortly after start(), triggered by start() itself
+    // switching the input node from the system default device to the
+    // chosen one. Rebuilding on that would build another engine, which
+    // posts another notification, and so on - capture restarting every
+    // ~100 ms and never delivering audio. So only rebuild when the device
+    // or its format really changed.
+    private func handleConfigurationChange() {
+        let signature = currentSignature()
+        guard let signature, signature == startedSignature else {
+            Self.logger.notice("Audio engine configuration changed; restarting capture")
+            onNeedsRestart?()
+            return
+        }
+
+        // Same device and format. The engine may still have stopped itself
+        // as part of the change; start it again in place, without the
+        // device switch that a full rebuild would do.
+        guard !engine.isRunning else { return }
+        do {
+            try engine.start()
+            Self.logger.notice("Audio engine configuration changed but input is unchanged; resumed in place")
+        } catch {
+            Self.logger.notice("Audio engine couldn't resume in place (\(error.localizedDescription, privacy: .public)); restarting capture")
+            onNeedsRestart?()
+        }
     }
 
     private func observeInterruptions() {
         let center = NotificationCenter.default
         let configObserver = center.addObserver(forName: .AVAudioEngineConfigurationChange,
                                                  object: engine, queue: .main) { [weak self] _ in
-            self?.onNeedsRestart?()
+            self?.handleConfigurationChange()
         }
         notificationObservers.append((center, configObserver))
 
@@ -124,6 +273,10 @@ final class CaptureEngine {
 
     private func convertAndEmit(_ buffer: AVAudioPCMBuffer) {
         let inputFormat = buffer.format
+        if !hasReceivedAudio {
+            hasReceivedAudio = true
+            Self.logger.notice("Receiving audio: \(Int(inputFormat.sampleRate)) Hz, \(inputFormat.channelCount) ch")
+        }
 
         // The resampler is derived from the format the buffers actually
         // arrive in, and rebuilt whenever that changes. A converter

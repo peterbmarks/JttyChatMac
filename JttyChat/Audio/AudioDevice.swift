@@ -82,7 +82,18 @@ enum AudioDeviceLister {
         return buffers.reduce(0) { $0 + Int($1.mNumberChannels) }
     }
 
-    private static func deviceName(for deviceID: AudioDeviceID) -> String? {
+    // The rate the device's hardware is currently running at.
+    static func nominalSampleRate(for deviceID: AudioDeviceID) -> Double? {
+        var address = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyNominalSampleRate,
+                                                   mScope: kAudioObjectPropertyScopeGlobal,
+                                                   mElement: kAudioObjectPropertyElementMain)
+        var rate = Float64(0)
+        var dataSize = UInt32(MemoryLayout<Float64>.size)
+        guard AudioObjectGetPropertyData(deviceID, &address, 0, nil, &dataSize, &rate) == noErr else { return nil }
+        return rate
+    }
+
+    static func deviceName(for deviceID: AudioDeviceID) -> String? {
         var address = AudioObjectPropertyAddress(mSelector: kAudioObjectPropertyName,
                                                    mScope: kAudioObjectPropertyScopeGlobal,
                                                    mElement: kAudioObjectPropertyElementMain)

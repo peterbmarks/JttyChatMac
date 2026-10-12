@@ -262,8 +262,12 @@ final class ChatViewModel: ObservableObject {
             // is what used to leave the app permanently deaf with no hint
             // that anything was wrong.
             guard retriesRemaining > 0 else {
-                alertMessage = "Couldn't start listening on the audio input: "
+                var message = "Couldn't start listening on the audio input: "
                     + "\(error.localizedDescription) Check the input device in Settings."
+                if let captureError = error as? CaptureEngine.CaptureError {
+                    message += "\n\nDetails: " + captureError.diagnostics
+                }
+                alertMessage = message
                 return
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.captureRetryDelay) { [weak self] in
