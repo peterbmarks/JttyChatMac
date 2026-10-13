@@ -63,23 +63,45 @@ final class JttyDecoder {
     var onMessageUpdated: ((Update) -> Void)?
 
     private var buffer: [Int16] = []
+    // Set whenever the buffer is emptied; the next poll() then explicitly
+    // restarts the Fortran decoder before scanning (see restartCodec()).
+    private var needsCodecReset = false
 
     /// Throws away buffered audio, for when the capture stream has been
     /// interrupted - a device change, or a sleep/wake gap - and the
     /// samples either side of the break aren't contiguous in time.
-    ///
-    /// Shrinking the buffer is also what makes the Fortran decoder drop
-    /// its own sync state: rjtty_core restarts whenever it's handed a
-    /// buffer no longer than the last one it saw.
     func reset() {
         buffer.removeAll(keepingCapacity: true)
+        needsCodecReset = true
     }
 
     func addSamples(_ samples: [Int16]) {
         if buffer.count + samples.count > Self.maxBufferSamples {
             buffer.removeAll()
+            needsCodecReset = true
         }
         buffer.append(contentsOf: samples)
+    }
+
+    // rjtty_core only restarts when handed a buffer no longer than the one
+    // it was given at its *previous restart* (kz0 is only updated then),
+    // not the one from its last call. So just emptying our buffer isn't
+    // enough: if the first chunk after a restart was short (as the
+    // resampler's first output usually is) and later chunks are longer,
+    // the next wrap or wake hands it a longer buffer, it never restarts,
+    // and it sits waiting to resume ~10 minutes into a stream that no
+    // longer exists - deaf, while the waterfall carries on as normal.
+    // A one-sample buffer is never longer than kz0, so it always restarts,
+    // and leaves kz0 at 1 so the next one does too.
+    private func restartCodec() {
+        var sample: Int16 = 0
+        var k: Int32 = 1
+        var nsps = Int32(Jtty.rxSamplesPerSymbol)
+        var nfa = Self.searchBandLowHz
+        var nfb = Self.searchBandHighHz
+        var f0 = Jtty.defaultToneHz
+        var ftol = Self.listenToleranceHz
+        rjtty_sub_(&sample, &k, &nsps, &nfa, &nfb, &f0, &ftol)
     }
 
     // Scans whatever's new since the last poll and reports any messages
@@ -87,6 +109,10 @@ final class JttyDecoder {
     // whatever thread is feeding audio in.
     func poll() {
         guard !buffer.isEmpty else { return }
+        if needsCodecReset {
+            restartCodec()
+            needsCodecReset = false
+        }
 
         var k = Int32(buffer.count)
         var nsps = Int32(Jtty.rxSamplesPerSymbol)
