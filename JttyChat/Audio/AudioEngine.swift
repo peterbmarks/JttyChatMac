@@ -155,7 +155,7 @@ final class CaptureEngine {
         return parts.joined(separator: "; ") + "."
     }
 
-    private static func currentDevice(of audioUnit: AudioUnit) -> AudioDeviceID? {
+    fileprivate static func currentDevice(of audioUnit: AudioUnit) -> AudioDeviceID? {
         var deviceID = AudioDeviceID(0)
         var size = UInt32(MemoryLayout<AudioDeviceID>.size)
         let status = AudioUnitGetProperty(audioUnit, kAudioOutputUnitProperty_CurrentDevice,
@@ -330,19 +330,55 @@ final class CaptureEngine {
 /// Plays a single mono 48 kHz Int16 PCM buffer through a chosen (or
 /// default) output device, then calls back when playback finishes.
 final class PlaybackEngine {
-    private let engine = AVAudioEngine()
-    private let player = AVAudioPlayerNode()
+    // Replaced with fresh instances whenever the output has to be set up
+    // again; see rebuild(deviceID:).
+    private var engine = AVAudioEngine()
+    private var player = AVAudioPlayerNode()
     private let format = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: Double(Jtty.txSampleRate),
                                         channels: 1, interleaved: true)!
+
+    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "JttyChat", category: "Audio")
 
     // Tracks which device the engine is currently configured for, so repeat
     // sends to the same device don't tear the engine down and rebuild it
     // every time (see play(), below).
     private var configuredDeviceID: AudioDeviceID?
+    // Set when the system reconfigures the engine's output (a sleep/wake,
+    // an unplug, a sample-rate change by another app), after which neither
+    // its device nor its connection formats can be trusted.
+    private var isStale = true
+    private var configObserver: NSObjectProtocol?
 
-    init() {
+    // Builds a new engine pointed at deviceID. A fresh engine rather than
+    // re-pointing the old one, for the same reason CaptureEngine.start()
+    // does it: an AVAudioEngine keeps the I/O formats it first saw after
+    // the device underneath it has changed.
+    private func rebuild(deviceID: AudioDeviceID?) throws {
+        if let configObserver {
+            NotificationCenter.default.removeObserver(configObserver)
+        }
+        player.stop()
+        if engine.isRunning {
+            engine.stop()
+        }
+
+        engine = AVAudioEngine()
+        player = AVAudioPlayerNode()
+        configuredDeviceID = nil
+        // Pick the device before anything is connected, so the mixer to
+        // output connection is made at that device's format.
+        if let deviceID {
+            try CaptureEngine.setDevice(deviceID, on: engine.outputNode.audioUnit)
+        }
         engine.attach(player)
         engine.connect(player, to: engine.mainMixerNode, format: format)
+        configuredDeviceID = deviceID
+        isStale = false
+
+        configObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange,
+                                                                object: engine, queue: .main) { [weak self] _ in
+            self?.isStale = true
+        }
     }
 
     func play(samples: [Int16], deviceID: AudioDeviceID?, completion: @escaping () -> Void) throws {
@@ -358,14 +394,18 @@ final class PlaybackEngine {
         // one after it is silent).
         player.stop()
 
-        if deviceID != configuredDeviceID {
-            if engine.isRunning {
-                engine.stop()
+        // Checks the device the output unit is really using, not just the
+        // one last asked for. When the chosen interface drops off during
+        // sleep, the output falls back to the system default. The interface
+        // usually comes back with the same AudioDeviceID, so comparing IDs
+        // alone would keep transmitting out of the Mac's speakers.
+        let actualDeviceID = engine.outputNode.audioUnit.flatMap { CaptureEngine.currentDevice(of: $0) }
+        let deviceMismatch = deviceID != nil && actualDeviceID != deviceID
+        if isStale || deviceID != configuredDeviceID || deviceMismatch {
+            if deviceMismatch && !isStale {
+                Self.logger.notice("Playback output had moved to device \(actualDeviceID.map { String($0) } ?? "none", privacy: .public); rebuilding")
             }
-            if let deviceID {
-                try CaptureEngine.setDevice(deviceID, on: engine.outputNode.audioUnit)
-            }
-            configuredDeviceID = deviceID
+            try rebuild(deviceID: deviceID)
         }
 
         guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count)) else {
