@@ -32,4 +32,7 @@ struct ChatMessage: Identifiable, Equatable {
     /// arriving, not when it finished - so a live bubble's timestamp
     /// doesn't jump around while it fills in.
     let date: Date = Date()
+    /// The strongest per-frame SNR (dB, 2500 Hz bandwidth) seen while this
+    /// message was being received. Nil for sent messages.
+    var bestSnrDb: Int?
 }

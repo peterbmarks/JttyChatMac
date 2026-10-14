@@ -138,9 +138,12 @@ final class ChatViewModel: ObservableObject {
             }
             messages[index].text = text
             messages[index].decodeState = update.isComplete ? .complete : .inProgress
+            // Each update carries only the latest frame's SNR; keep the best.
+            messages[index].bestSnrDb = max(messages[index].bestSnrDb ?? update.snrDb, update.snrDb)
         } else {
             let message = ChatMessage(text: text, isSent: false,
-                                      decodeState: update.isComplete ? .complete : .inProgress)
+                                      decodeState: update.isComplete ? .complete : .inProgress,
+                                      bestSnrDb: update.snrDb)
             messages.append(message)
             // A message that arrived already complete needs no tracking;
             // one still in progress has to be watched in case it stalls.

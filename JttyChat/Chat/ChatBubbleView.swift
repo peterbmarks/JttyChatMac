@@ -95,13 +95,20 @@ struct ChatBubbleView: View {
         case .inProgress:
             return "Receiving…"
         case .complete:
-            return Self.timestampText(for: message.date)
+            return Self.timestampText(for: message.date) + snrText
         // Flagged rather than shown as an ordinary message: the text is
         // only as much as got through, and a truncated callsign or report
         // read as complete is worse than no decode at all.
         case .incomplete:
-            return Self.timestampText(for: message.date) + " · incomplete"
+            return Self.timestampText(for: message.date) + snrText + " · incomplete"
         }
+    }
+
+    // " · SNR -12 dB" (signed, WSJT-X style) for received messages; empty
+    // for sent ones.
+    private var snrText: String {
+        guard let snr = message.bestSnrDb else { return "" }
+        return " · SNR \(snr > 0 ? "+" : "")\(snr) dB"
     }
 
     // "4:32 PM" for messages from today, "Oct 7, 4:32 PM" otherwise.
