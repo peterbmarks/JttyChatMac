@@ -74,6 +74,17 @@ final class ChatViewModel: ObservableObject {
 
     @Published var receiveQuality: ReceiveQuality?
 
+    /// The rig's current frequency and mode ("14.090000 MHz  USB"), for the
+    /// right of the status line. Nil when no rig is configured.
+    @Published var rigStatus: String?
+    private static let rigStatusInterval: Duration = .seconds(5)
+    // Every Hamlib call opens the serial port, does its thing and closes it
+    // again, so two at once (a status poll landing on a PTT key-up) would
+    // contend for the port. All rig calls go through this one queue, which
+    // also keeps PTT on and off in the order they were issued.
+    private let rigQueue = DispatchQueue(label: "JttyChat.rig")
+    private var rigStatusPolling: Task<Void, Never>?
+
     // The text of the most recently sent message, as typed, so it can be recalled with the up arrow.
     private var lastSentText: String?
 
@@ -110,6 +121,12 @@ final class ChatViewModel: ObservableObject {
             }
         }
         startReceiver()
+        rigStatusPolling = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.refreshRigStatus()
+                try? await Task.sleep(for: Self.rigStatusInterval)
+            }
+        }
     }
 
     // Shows a message as it decodes. The decoder reports a growing (and
@@ -334,7 +351,7 @@ final class ChatViewModel: ObservableObject {
         let outputDeviceID = settings.resolvedOutputDevice()?.id
 
         if let rig {
-            Task.detached { _ = RigController.setPTT(model: rig.model, port: rig.port, serial: rig.serial, on: true) }
+            rigQueue.async { _ = RigController.setPTT(model: rig.model, port: rig.port, serial: rig.serial, on: true) }
         }
 
         let leadMs = rig != nil ? Self.pttLeadMs : 0
@@ -351,7 +368,9 @@ final class ChatViewModel: ObservableObject {
 
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(totalMs)) { [weak self] in
             if let rig {
-                Task.detached { _ = RigController.setPTT(model: rig.model, port: rig.port, serial: rig.serial, on: false) }
+                self?.rigQueue.async {
+                    _ = RigController.setPTT(model: rig.model, port: rig.port, serial: rig.serial, on: false)
+                }
             }
             self?.isSending = false
         }
@@ -399,11 +418,41 @@ final class ChatViewModel: ObservableObject {
             alertMessage = "Configure a rig model and port in Settings first."
             return
         }
-        Task.detached {
-            if let error = RigController.setFrequency(model: rig.model, port: rig.port, serial: rig.serial,
-                                                         freqHz: freqMHz * 1.0e6) {
-                await MainActor.run { self.alertMessage = error }
+        Task {
+            let error = await onRigQueue {
+                RigController.setFrequency(model: rig.model, port: rig.port, serial: rig.serial,
+                                           freqHz: freqMHz * 1.0e6)
             }
+            if let error {
+                alertMessage = error
+            } else {
+                // Show the new frequency now rather than at the next poll.
+                await refreshRigStatus()
+            }
+        }
+    }
+
+    // MARK: - Rig status
+
+    // Reads the rig's frequency and mode for the status line. Skipped while
+    // transmitting, so the poll doesn't hold the port up between PTT on
+    // and off (and some rigs won't answer a query while keyed anyway).
+    private func refreshRigStatus() async {
+        guard let rig = settings.loadRigTxSettings() else {
+            rigStatus = nil
+            return
+        }
+        guard !isSending else { return }
+        let result = await onRigQueue {
+            RigController.connectAndQuery(model: rig.model, port: rig.port, serial: rig.serial)
+        }
+        rigStatus = result.success ? result.message : "Rig not responding"
+    }
+
+    // Runs a blocking Hamlib call on rigQueue and waits for its result.
+    private func onRigQueue<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
+        await withCheckedContinuation { continuation in
+            rigQueue.async { continuation.resume(returning: work()) }
         }
     }
 }

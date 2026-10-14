@@ -85,6 +85,9 @@ struct ContentView: View {
                 Text("No signal decoded")
             }
             Spacer()
+            if let rigStatus = viewModel.rigStatus {
+                Text(rigStatus)
+            }
         }
         .font(.system(size: 11).monospacedDigit())
         .foregroundStyle(.secondary)
