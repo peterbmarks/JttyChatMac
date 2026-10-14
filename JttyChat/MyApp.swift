@@ -25,6 +25,12 @@ struct MyApp: App {
         }
         .windowResizability(.contentSize)
         .commands {
+            CommandGroup(after: .newItem) {
+                Divider()
+                Button("Export...") { viewModel.exportMessages() }
+                    .keyboardShortcut("e", modifiers: [.command, .shift])
+                    .disabled(viewModel.messages.isEmpty)
+            }
             CommandGroup(replacing: .appSettings) {
                 Button("Settings...") { openWindow(id: "settings") }
                     .keyboardShortcut(",", modifiers: .command)

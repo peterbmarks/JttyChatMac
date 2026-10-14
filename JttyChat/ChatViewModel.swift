@@ -1,5 +1,7 @@
+import AppKit
 import Combine
 import Foundation
+import UniformTypeIdentifiers
 import SwiftUI
 
 /// Orchestrates sending/receiving JTTY messages, the live spectrum, and rig
@@ -353,6 +355,41 @@ final class ChatViewModel: ObservableObject {
             }
             self?.isSending = false
         }
+    }
+
+    // MARK: - Export
+
+    /// Asks where to save, then writes every message in the conversation
+    /// to a plain-text file, one per line, tab-separated: TX or RX, the
+    /// text, the local time, and (for received messages) the best SNR.
+    func exportMessages() {
+        let panel = NSSavePanel()
+        panel.title = "Export Messages"
+        panel.allowedContentTypes = [.plainText]
+        panel.nameFieldStringValue = "JttyChat " + Date().formatted(.iso8601.year().month().day()) + ".txt"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        do {
+            try exportText().write(to: url, atomically: true, encoding: .utf8)
+        } catch {
+            alertMessage = "Couldn't export the messages: \(error.localizedDescription)"
+        }
+    }
+
+    private func exportText() -> String {
+        // Fixed, locale-independent local time so the file sorts and parses
+        // the same everywhere.
+        let timeFormatter = DateFormatter()
+        timeFormatter.locale = Locale(identifier: "en_US_POSIX")
+        timeFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return messages.map { message in
+            var fields = [message.isSent ? "TX" : "RX", message.text, timeFormatter.string(from: message.date)]
+            if let snr = message.bestSnrDb {
+                fields.append("\(snr > 0 ? "+" : "")\(snr) dB")
+            }
+            return fields.joined(separator: "\t")
+        }
+        .joined(separator: "\n") + "\n"
     }
 
     // MARK: - Frequency menu
