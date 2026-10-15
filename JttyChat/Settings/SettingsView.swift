@@ -33,6 +33,9 @@ struct SettingsView: View {
     // "Default (8)" etc.; empty until looked up, or for models without a
     // serial port.
     @State private var rigSerialDefaults: [RigSerialSetting: String] = [:]
+    @State private var rigMode = RigController.defaultModeValue
+    // The selected model's modes; empty until looked up.
+    @State private var rigModes: [String] = []
 
     @State private var isConnecting = false
     @State private var rigStatusText = ""
@@ -66,6 +69,14 @@ struct SettingsView: View {
                             Text(rig.label).tag(Optional(rig.model))
                         }
                     }
+
+                    Picker("Mode:", selection: $rigMode) {
+                        Text(defaultModeLabel).tag(RigController.defaultModeValue)
+                        ForEach(modeChoices, id: \.self) { mode in
+                            Text(mode).tag(mode)
+                        }
+                    }
+                    .help("Set on the rig when connecting and when changing frequency")
 
                     HStack(spacing: 4) {
                         TextField("Rig Port:", text: $rigPort, prompt: Text("/dev/cu.usbserial-XXXX"))
@@ -132,6 +143,36 @@ struct SettingsView: View {
         .onAppear { loadState() }
         .onChange(of: selectedRigModel) { _, model in
             loadSerialDefaults(model: model)
+            loadModes(model: model)
+        }
+    }
+
+    // "Default (PKTUSB)", once the model's modes are known.
+    private var defaultModeLabel: String {
+        guard !rigModes.isEmpty else { return RigController.defaultModeValue }
+        return "\(RigController.defaultModeValue) (\(RigController.defaultMode(among: rigModes)))"
+    }
+
+    // The model's modes, plus the saved one if the model doesn't list it
+    // (e.g. before the list has loaded), so the popup can always show it.
+    private var modeChoices: [String] {
+        if rigMode == RigController.defaultModeValue || rigModes.contains(rigMode) {
+            return rigModes
+        }
+        return rigModes + [rigMode]
+    }
+
+    private func loadModes(model: Int?) {
+        rigModes = []
+        guard let model else { return }
+        Task.detached {
+            let modes = RigController.supportedModes(model: model)
+            await MainActor.run {
+                // Ignore a lookup for a model that's since been changed.
+                if self.selectedRigModel == model {
+                    self.rigModes = modes
+                }
+            }
         }
     }
 
@@ -167,6 +208,7 @@ struct SettingsView: View {
         selectedRigModel = settings.rigModel
         rigPort = settings.rigPort
         rigSerial = settings.rigSerial
+        rigMode = settings.rigMode
         discoveredPorts = Self.listSerialPorts()
 
         isLoadingRigs = true
@@ -188,12 +230,13 @@ struct SettingsView: View {
 
         let port = rigPort.trimmingCharacters(in: .whitespaces)
         let serial = rigSerial
+        let mode = rigMode
         isConnecting = true
         rigStatusIsError = false
         rigStatusText = "Connecting..."
 
         Task.detached {
-            let result = RigController.connectAndQuery(model: model, port: port, serial: serial)
+            let result = RigController.connectAndQuery(model: model, port: port, serial: serial, setMode: mode)
             await MainActor.run {
                 self.rigStatusText = result.message
                 self.rigStatusIsError = !result.success
@@ -211,11 +254,14 @@ struct SettingsView: View {
         settings.rigModel = selectedRigModel
         settings.rigPort = rigPort.trimmingCharacters(in: .whitespaces)
         settings.rigSerial = rigSerial
+        settings.rigMode = rigMode
         settings.save()
 
         // Audio device choices may have changed; restart capture against
         // whatever is now configured.
         viewModel.restartReceiver()
+        // Likewise the rig: reconnect, applying the (possibly new) mode.
+        viewModel.reconnectRig()
         dismiss()
     }
 

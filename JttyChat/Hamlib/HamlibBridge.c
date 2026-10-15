@@ -101,6 +101,8 @@ struct HamlibAPI {
     __typeof__(rig_get_freq) *rig_get_freq;
     __typeof__(rig_set_freq) *rig_set_freq;
     __typeof__(rig_get_mode) *rig_get_mode;
+    __typeof__(rig_set_mode) *rig_set_mode;
+    __typeof__(rig_parse_mode) *rig_parse_mode;
     __typeof__(rig_set_ptt) *rig_set_ptt;
     __typeof__(rig_strrmode) *rig_strrmode;
     __typeof__(rigerror) *rigerror;
@@ -177,6 +179,8 @@ static bool resolveAPI(void *handle, struct HamlibAPI *api)
     RESOLVE(rig_get_freq)
     RESOLVE(rig_set_freq)
     RESOLVE(rig_get_mode)
+    RESOLVE(rig_set_mode)
+    RESOLVE(rig_parse_mode)
     RESOLVE(rig_set_ptt)
     RESOLVE(rig_strrmode)
     RESOLVE(rigerror)
@@ -434,12 +438,43 @@ static RIG *openRig(int model, const char *port, const char *serialConfig, char 
     return rig;
 }
 
-bool jttyrig_connect_and_query(int model, const char *port, const char *serialConfig,
+// Sets the current VFO's mode by Hamlib name (e.g. "PKTUSB"), leaving the
+// passband alone. A NULL or empty mode does nothing. On failure, fills
+// outError and returns false.
+static bool setMode(RIG *rig, const char *mode, char *outError, int outErrorSize)
+{
+    if (!mode || mode[0] == '\0')
+        return true;
+
+    const rmode_t parsed = hl.rig_parse_mode(mode);
+    if (parsed == RIG_MODE_NONE) {
+        snprintf(outError, (size_t)outErrorSize, "Unknown mode \"%s\".", mode);
+        appLog(RIG_DEBUG_ERR, "rig_parse_mode(\"%s\") failed", mode);
+        return false;
+    }
+
+    appLog(RIG_DEBUG_VERBOSE, "Setting mode to %s", mode);
+    const int retcode = hl.rig_set_mode(rig, RIG_VFO_CURR, parsed, RIG_PASSBAND_NOCHANGE);
+    if (retcode != RIG_OK) {
+        snprintf(outError, (size_t)outErrorSize, "Set mode %s failed: %s", mode, errorText(retcode));
+        logRigError("rig_set_mode", retcode);
+        return false;
+    }
+    return true;
+}
+
+bool jttyrig_connect_and_query(int model, const char *port, const char *serialConfig, const char *mode,
                                 char *outMessage, int outMessageSize)
 {
     RIG *rig = openRig(model, port, serialConfig, outMessage, outMessageSize);
     if (!rig)
         return false;
+
+    if (!setMode(rig, mode, outMessage, outMessageSize)) {
+        hl.rig_close(rig);
+        hl.rig_cleanup(rig);
+        return false;
+    }
 
     freq_t freq = 0;
     int retcode = hl.rig_get_freq(rig, RIG_VFO_CURR, &freq);
@@ -452,9 +487,9 @@ bool jttyrig_connect_and_query(int model, const char *port, const char *serialCo
         return false;
     }
 
-    rmode_t mode = RIG_MODE_NONE;
+    rmode_t currentMode = RIG_MODE_NONE;
     pbwidth_t width = 0;
-    const int modeRetcode = hl.rig_get_mode(rig, RIG_VFO_CURR, &mode, &width);
+    const int modeRetcode = hl.rig_get_mode(rig, RIG_VFO_CURR, &currentMode, &width);
     if (modeRetcode != RIG_OK)
         logRigError("rig_get_mode", modeRetcode);
 
@@ -462,11 +497,11 @@ bool jttyrig_connect_and_query(int model, const char *port, const char *serialCo
     hl.rig_cleanup(rig);
 
     char modeText[64];
-    if (modeRetcode == RIG_OK && mode != RIG_MODE_NONE) {
+    if (modeRetcode == RIG_OK && currentMode != RIG_MODE_NONE) {
         if (width > 0)
-            snprintf(modeText, sizeof(modeText), "%s (%ld Hz)", hl.rig_strrmode(mode), (long)width);
+            snprintf(modeText, sizeof(modeText), "%s (%ld Hz)", hl.rig_strrmode(currentMode), (long)width);
         else
-            snprintf(modeText, sizeof(modeText), "%s", hl.rig_strrmode(mode));
+            snprintf(modeText, sizeof(modeText), "%s", hl.rig_strrmode(currentMode));
     } else {
         snprintf(modeText, sizeof(modeText), "unknown mode");
     }
@@ -498,7 +533,7 @@ bool jttyrig_set_ptt(int model, const char *port, const char *serialConfig, bool
 }
 
 bool jttyrig_set_frequency(int model, const char *port, const char *serialConfig, double freqHz,
-                            char *outError, int outErrorSize)
+                            const char *mode, char *outError, int outErrorSize)
 {
     RIG *rig = openRig(model, port, serialConfig, outError, outErrorSize);
     if (!rig)
@@ -506,14 +541,69 @@ bool jttyrig_set_frequency(int model, const char *port, const char *serialConfig
 
     appLog(RIG_DEBUG_VERBOSE, "Setting frequency to %.6f MHz", freqHz / 1.0e6);
     const int retcode = hl.rig_set_freq(rig, RIG_VFO_CURR, freqHz);
-    hl.rig_close(rig);
-    hl.rig_cleanup(rig);
-
     if (retcode != RIG_OK) {
         snprintf(outError, (size_t)outErrorSize, "Set frequency failed: %s", errorText(retcode));
         logRigError("rig_set_freq", retcode);
+        hl.rig_close(rig);
+        hl.rig_cleanup(rig);
         return false;
     }
+
+    // After the frequency, since some rigs pick a band's last-used mode
+    // when they change band.
+    const bool modeSet = setMode(rig, mode, outError, outErrorSize);
+    hl.rig_close(rig);
+    hl.rig_cleanup(rig);
+    return modeSet;
+}
+
+// MARK: - Modes
+
+bool jttyrig_list_modes(int model, char *outModes, int outModesSize)
+{
+    if (outModesSize <= 0)
+        return false;
+    outModes[0] = '\0';
+    if (!ensureHamlib())
+        return false;
+
+    // As in jttyrig_get_default_conf: only a lookup, so keep rig_init()'s
+    // trace output out of the Hamlib Log.
+    hl.rig_set_debug(RIG_DEBUG_NONE);
+    RIG *rig = hl.rig_init((rig_model_t)model);
+    if (!rig) {
+        hl.rig_set_debug((enum rig_debug_level_e)debugLevel);
+        return false;
+    }
+
+    // Every mode any of the model's (first two regions') receive or
+    // transmit frequency ranges allows. These lists sit early in
+    // rig_caps, where Hamlib 4.x keeps its layout stable.
+    const struct rig_caps *caps = rig->caps;
+    const freq_range_t *lists[] = {caps->rx_range_list1, caps->tx_range_list1, caps->rx_range_list2,
+                                   caps->tx_range_list2};
+    rmode_t modes = RIG_MODE_NONE;
+    for (size_t l = 0; l < sizeof(lists) / sizeof(lists[0]); l++) {
+        for (int i = 0; i < HAMLIB_FRQRANGESIZ && !RIG_IS_FRNG_END(lists[l][i]); i++)
+            modes |= lists[l][i].modes;
+    }
+
+    size_t used = 0;
+    for (int bit = 0; bit < 64; bit++) {
+        const rmode_t mode = CONSTANT_64BIT_FLAG(bit);
+        if (!(modes & mode))
+            continue;
+        const char *name = hl.rig_strrmode(mode);
+        if (!name || name[0] == '\0')
+            continue;
+        const int written = snprintf(outModes + used, (size_t)outModesSize - used, "%s\n", name);
+        if (written < 0 || used + (size_t)written >= (size_t)outModesSize)
+            break;
+        used += (size_t)written;
+    }
+
+    hl.rig_cleanup(rig);
+    hl.rig_set_debug((enum rig_debug_level_e)debugLevel);
     return true;
 }
 

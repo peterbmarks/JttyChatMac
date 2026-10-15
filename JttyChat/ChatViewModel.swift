@@ -84,6 +84,10 @@ final class ChatViewModel: ObservableObject {
     // also keeps PTT on and off in the order they were issued.
     private let rigQueue = DispatchQueue(label: "JttyChat.rig")
     private var rigStatusPolling: Task<Void, Never>?
+    // The configured mode is set on the rig when first connecting to it -
+    // at launch, and again after Settings change - but not on every status
+    // poll, which would undo any mode change made at the radio.
+    private var needsRigModeSet = true
 
     // The text of the most recently sent message, as typed, so it can be recalled with the up arrow.
     private var lastSentText: String?
@@ -421,7 +425,7 @@ final class ChatViewModel: ObservableObject {
         Task {
             let error = await onRigQueue {
                 RigController.setFrequency(model: rig.model, port: rig.port, serial: rig.serial,
-                                           freqHz: freqMHz * 1.0e6)
+                                           freqHz: freqMHz * 1.0e6, mode: rig.mode)
             }
             if let error {
                 alertMessage = error
@@ -443,10 +447,22 @@ final class ChatViewModel: ObservableObject {
             return
         }
         guard !isSending else { return }
+        let mode = needsRigModeSet ? rig.mode : nil
         let result = await onRigQueue {
-            RigController.connectAndQuery(model: rig.model, port: rig.port, serial: rig.serial)
+            RigController.connectAndQuery(model: rig.model, port: rig.port, serial: rig.serial, setMode: mode)
+        }
+        // Keep trying to set the mode until a connection succeeds.
+        if result.success {
+            needsRigModeSet = false
         }
         rigStatus = result.success ? result.message : "Rig not responding"
+    }
+
+    /// The rig settings may have changed: connect again now, setting the
+    /// configured mode.
+    func reconnectRig() {
+        needsRigModeSet = true
+        Task { await refreshRigStatus() }
     }
 
     // Runs a blocking Hamlib call on rigQueue and waits for its result.

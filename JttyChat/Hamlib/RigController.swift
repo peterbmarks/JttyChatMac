@@ -128,15 +128,45 @@ nonisolated enum RigController {
         return rigs
     }
 
-    // Opens the given rig model on the given port, reads its current
+    // Opens the given rig model on the given port, optionally sets its mode
+    // (a Settings mode value - see resolvedMode), reads its current
     // frequency and mode, then closes it again. Blocks for as long as
     // Hamlib takes to open the port and respond (or time out) - call this
     // off the main thread.
-    static func connectAndQuery(model: Int, port: String, serial: RigSerialConfig) -> RigConnectionResult {
+    static func connectAndQuery(model: Int, port: String, serial: RigSerialConfig,
+                                setMode mode: String? = nil) -> RigConnectionResult {
         var buffer = [CChar](repeating: 0, count: messageBufferSize)
-        let success = jttyrig_connect_and_query(Int32(model), port, serial.hamlibConfig, &buffer,
+        let success = jttyrig_connect_and_query(Int32(model), port, serial.hamlibConfig,
+                                                mode.map { resolvedMode($0, model: model) }, &buffer,
                                                 Int32(messageBufferSize))
         return RigConnectionResult(success: success, message: String(cString: buffer))
+    }
+
+    // MARK: - Modes
+
+    /// The Settings mode value meaning "PKTUSB if the rig has it, else USB".
+    static let defaultModeValue = "Default"
+
+    // The modes the given rig model supports, as Hamlib names ("USB",
+    // "PKTUSB", ...), in Hamlib's own order. Loads Hamlib on first use;
+    // call off the main thread.
+    static func supportedModes(model: Int) -> [String] {
+        var buffer = [CChar](repeating: 0, count: 2048)
+        guard jttyrig_list_modes(Int32(model), &buffer, Int32(buffer.count)) else { return [] }
+        return String(cString: buffer).components(separatedBy: "\n").filter { !$0.isEmpty }
+    }
+
+    // JTTY wants the rig's data mode, so audio comes from (and goes to) the
+    // data port with the rig's data filtering; plain USB where there's no
+    // such mode.
+    static func defaultMode(among modes: [String]) -> String {
+        modes.contains("PKTUSB") ? "PKTUSB" : "USB"
+    }
+
+    // The Hamlib mode a Settings mode value stands for. Call off the main
+    // thread (resolving the default looks the model's modes up in Hamlib).
+    static func resolvedMode(_ setting: String, model: Int) -> String {
+        setting == defaultModeValue ? defaultMode(among: supportedModes(model: model)) : setting
     }
 
     // Opens the rig just long enough to key or unkey PTT, then closes it
@@ -149,11 +179,14 @@ nonisolated enum RigController {
     }
 
     // Opens the rig just long enough to set its current VFO frequency (in
-    // Hz), then closes it again. Call this off the main thread. Returns an
+    // Hz) and, if given, mode (a Settings mode value - see resolvedMode),
+    // then closes it again. Call this off the main thread. Returns an
     // error message, or nil on success.
-    static func setFrequency(model: Int, port: String, serial: RigSerialConfig, freqHz: Double) -> String? {
+    static func setFrequency(model: Int, port: String, serial: RigSerialConfig, freqHz: Double,
+                             mode: String? = nil) -> String? {
         var buffer = [CChar](repeating: 0, count: messageBufferSize)
-        let success = jttyrig_set_frequency(Int32(model), port, serial.hamlibConfig, freqHz, &buffer,
+        let success = jttyrig_set_frequency(Int32(model), port, serial.hamlibConfig, freqHz,
+                                            mode.map { resolvedMode($0, model: model) }, &buffer,
                                             Int32(messageBufferSize))
         return success ? nil : String(cString: buffer)
     }

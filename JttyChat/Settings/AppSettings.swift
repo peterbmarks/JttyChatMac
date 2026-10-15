@@ -17,6 +17,7 @@ private enum SettingsKey {
     static let rigHandshake = "Transceiver.rigHandshake"
     static let rigDTRState = "Transceiver.rigDTRState"
     static let rigRTSState = "Transceiver.rigRTSState"
+    static let rigMode = "Transceiver.rigMode"
 
     static func key(for setting: RigSerialSetting) -> String {
         switch setting {
@@ -49,6 +50,8 @@ struct RigTxSettings {
     let model: Int
     let port: String
     let serial: RigSerialConfig
+    /// A Hamlib mode name, or RigController.defaultModeValue.
+    let mode: String
 }
 
 /// Persisted application settings (callsign + transceiver config). Ported
@@ -62,6 +65,9 @@ final class AppSettings: ObservableObject {
     @Published var rigModel: Int?
     @Published var rigPort: String
     @Published var rigSerial: RigSerialConfig
+    /// The mode set on the rig when connecting or changing frequency: a
+    /// Hamlib mode name, or RigController.defaultModeValue.
+    @Published var rigMode: String
     @Published var capitalizeMessages: Bool
     @Published var appendCallsign: Bool
 
@@ -81,6 +87,7 @@ final class AppSettings: ObservableObject {
         rigModel = defaults.object(forKey: SettingsKey.rigModel) as? Int
         rigPort = defaults.string(forKey: SettingsKey.rigPort) ?? ""
         rigSerial = Self.loadRigSerial(from: defaults)
+        rigMode = defaults.string(forKey: SettingsKey.rigMode) ?? RigController.defaultModeValue
         capitalizeMessages = defaults.bool(forKey: SettingsKey.capitalizeMessages)
         appendCallsign = defaults.bool(forKey: SettingsKey.appendCallsign)
         macros = Self.loadMacros(from: defaults)
@@ -126,6 +133,7 @@ final class AppSettings: ObservableObject {
         for setting in RigSerialSetting.allCases {
             defaults.set(rigSerial[setting], forKey: SettingsKey.key(for: setting))
         }
+        defaults.set(rigMode, forKey: SettingsKey.rigMode)
         defaults.set(capitalizeMessages, forKey: SettingsKey.capitalizeMessages)
         defaults.set(appendCallsign, forKey: SettingsKey.appendCallsign)
     }
@@ -149,6 +157,7 @@ final class AppSettings: ObservableObject {
         guard let model = defaults.object(forKey: SettingsKey.rigModel) as? Int else { return nil }
         let port = (defaults.string(forKey: SettingsKey.rigPort) ?? "").trimmingCharacters(in: .whitespaces)
         guard !port.isEmpty else { return nil }
-        return RigTxSettings(model: model, port: port, serial: Self.loadRigSerial(from: defaults))
+        return RigTxSettings(model: model, port: port, serial: Self.loadRigSerial(from: defaults),
+                             mode: defaults.string(forKey: SettingsKey.rigMode) ?? RigController.defaultModeValue)
     }
 }

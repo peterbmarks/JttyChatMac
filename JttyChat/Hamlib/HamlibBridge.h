@@ -34,11 +34,15 @@ void jttyrig_free_list(JttyRigInfo *list, int count);
 // "serial_speed=9600\ndata_bits=8\nserial_handshake=None". Anything left
 // out keeps the rig backend's default. May be NULL.
 //
+// mode, here and below, is a Hamlib mode name (e.g. "PKTUSB") to set on
+// the current VFO, or NULL/empty to leave the mode as it is. When
+// connecting, it's set before the frequency and mode are read back.
+//
 // On success, fills outMessage with "<freq> MHz  <mode>" and returns true.
 // On failure, fills outMessage with an error description and returns
 // false. outMessage must be a caller-supplied buffer of outMessageSize
 // bytes.
-bool jttyrig_connect_and_query(int model, const char *port, const char *serialConfig,
+bool jttyrig_connect_and_query(int model, const char *port, const char *serialConfig, const char *mode,
                                 char *outMessage, int outMessageSize);
 
 // Opens the rig just long enough to key or unkey PTT, then closes it again.
@@ -47,11 +51,16 @@ bool jttyrig_connect_and_query(int model, const char *port, const char *serialCo
 bool jttyrig_set_ptt(int model, const char *port, const char *serialConfig, bool on, char *outError,
                       int outErrorSize);
 
-// Opens the rig just long enough to set its current VFO frequency (in Hz),
-// then closes it again. Meant to run off the main thread. Returns true on
-// success; on failure, fills outError and returns false.
+// Opens the rig just long enough to set its current VFO frequency (in Hz)
+// and then mode, then closes it again. Meant to run off the main thread.
+// Returns true on success; on failure, fills outError and returns false.
 bool jttyrig_set_frequency(int model, const char *port, const char *serialConfig, double freqHz,
-                            char *outError, int outErrorSize);
+                            const char *mode, char *outError, int outErrorSize);
+
+// The modes a rig model supports, as Hamlib mode names (e.g. "USB",
+// "PKTUSB"), one per line, without opening the rig. Returns false if Hamlib
+// or the model couldn't be loaded.
+bool jttyrig_list_modes(int model, char *outModes, int outModesSize);
 
 // Looks up a rig model's default value for each of the newline-separated
 // Hamlib configuration setting names in names (e.g.
