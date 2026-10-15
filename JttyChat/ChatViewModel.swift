@@ -335,7 +335,7 @@ final class ChatViewModel: ObservableObject {
     private func signedWithCallsign(_ text: String) -> String? {
         let callsign = settings.callsign.trimmingCharacters(in: .whitespaces)
         guard settings.appendCallsign, !callsign.isEmpty else { return nil }
-        let signed = text + "-" + callsign
+        let signed = text + " de " + callsign
         return signed.count <= Jtty.maxMessageLength ? signed : nil
     }
 
