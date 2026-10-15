@@ -99,6 +99,7 @@ final class ChatViewModel: ObservableObject {
     private let spectrum = AudioSpectrum(fftSize: spectrumFftSize, sampleRate: Jtty.rxSampleRate)
     private let captureEngine = CaptureEngine()
     private let playbackEngine = PlaybackEngine()
+    private let transmitMonitor = TransmitMonitor()
 
     // Bubbles for messages still arriving, keyed by the decoder's message
     // id, so each update rewrites the bubble it belongs to instead of
@@ -251,7 +252,10 @@ final class ChatViewModel: ObservableObject {
     func startReceiver() {
         captureEngine.onSamples = { [weak self] samples in
             guard let self else { return }
-            if let magnitudes = self.spectrum.addSamples(samples, lowHz: Self.spectrumLowHz, highHz: Self.spectrumHighHz) {
+            // Our own transmission is added to the waterfall only; the
+            // decoder hears just what was actually received.
+            let displayed = self.transmitMonitor.mix(into: samples)
+            if let magnitudes = self.spectrum.addSamples(displayed, lowHz: Self.spectrumLowHz, highHz: Self.spectrumHighHz) {
                 Task { @MainActor in self.waterfall.setMagnitudesDb(magnitudes) }
             }
             self.decoder.addSamples(samples)
@@ -365,6 +369,7 @@ final class ChatViewModel: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(leadMs)) { [weak self] in
             do {
                 try self?.playbackEngine.play(samples: samples, deviceID: outputDeviceID) {}
+                self?.transmitMonitor.start(samples)
             } catch {
                 self?.alertMessage = "Couldn't play the transmit audio: \(error.localizedDescription)"
             }
@@ -376,6 +381,9 @@ final class ChatViewModel: ObservableObject {
                     _ = RigController.setPTT(model: rig.model, port: rig.port, serial: rig.serial, on: false)
                 }
             }
+            // Normally already used up by now; this just guarantees the
+            // trace can't outlast the transmission (e.g. if capture stalled).
+            self?.transmitMonitor.stop()
             self?.isSending = false
         }
     }

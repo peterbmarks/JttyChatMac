@@ -1,5 +1,62 @@
 import Accelerate
 import Foundation
+import Synchronization
+
+/// Lets our own transmission show on the waterfall. While we transmit,
+/// the rig typically mutes (or simply doesn't pass) receive audio, so the
+/// waterfall would otherwise go blank; instead, the transmit audio is
+/// mixed into what the waterfall is shown - never into what the decoder
+/// hears - as it's played.
+///
+/// It's paced by the capture stream rather than a clock: each captured
+/// chunk takes the same number of transmit samples, so the trace scrolls
+/// at exactly the waterfall's own rate. Fed from the main thread, drained
+/// on the audio capture thread.
+nonisolated final class TransmitMonitor: Sendable {
+    // Full-scale transmit audio would sit far above anything received and
+    // paint the waterfall solid red; this brings it down to a strong but
+    // readable signal (about -45 dB on the waterfall's scale).
+    private static let displayGain: Float = 0.02
+    private static let decimation = Jtty.txSampleRate / Jtty.rxSampleRate
+
+    private struct State {
+        var samples: [Float] = []
+        var position = 0
+    }
+
+    private let state = Mutex(State())
+
+    /// Starts showing a transmission that's beginning to play now
+    /// (48 kHz transmit samples).
+    func start(_ txSamples: [Int16]) {
+        // Decimating without a filter is fine here: the transmit signal is
+        // a narrow tone pattern far below the 12 kHz rate's 6 kHz limit.
+        let samples = stride(from: 0, to: txSamples.count, by: Self.decimation).map {
+            Float(txSamples[$0]) * Self.displayGain
+        }
+        state.withLock { $0 = State(samples: samples, position: 0) }
+    }
+
+    /// Stops showing whatever's left of the current transmission.
+    func stop() {
+        state.withLock { $0 = State() }
+    }
+
+    /// The captured chunk with the matching stretch of any transmission in
+    /// progress added in; unchanged when nothing's being transmitted.
+    func mix(into captured: [Int16]) -> [Int16] {
+        state.withLock { state in
+            guard state.position < state.samples.count else { return captured }
+            var mixed = captured
+            let count = min(captured.count, state.samples.count - state.position)
+            for i in 0..<count {
+                mixed[i] = Int16(clamping: Int(Float(mixed[i]) + state.samples[state.position + i]))
+            }
+            state.position += count
+            return mixed
+        }
+    }
+}
 
 /// Computes a short-time magnitude spectrum (in dB) over a frequency band
 /// from a rolling window of the most recently fed samples. Ported from
