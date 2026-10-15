@@ -11,6 +11,14 @@ struct MyApp: App {
     @StateObject private var hamlibLog = HamlibLog.shared
     @Environment(\.openWindow) private var openWindow
 
+    /// Held for the app's lifetime to keep the Mac from idle-sleeping (and
+    /// the app from being App Napped) while it's listening and decoding.
+    /// The system releases the assertion automatically when the app quits.
+    private let sleepActivity: NSObjectProtocol = ProcessInfo.processInfo.beginActivity(
+        options: [.userInitiated, .idleSystemSleepDisabled],
+        reason: "JttyChat is monitoring the radio and must stay awake"
+    )
+
     init() {
         // Before anything touches Hamlib, so the whole session is logged.
         HamlibLog.shared.start()
