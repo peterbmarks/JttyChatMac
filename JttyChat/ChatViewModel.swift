@@ -100,6 +100,7 @@ final class ChatViewModel: ObservableObject {
     private let captureEngine = CaptureEngine()
     private let playbackEngine = PlaybackEngine()
     private let transmitMonitor = TransmitMonitor()
+    private let deviceMonitor = AudioDeviceMonitor()
 
     // Bubbles for messages still arriving, keyed by the decoder's message
     // id, so each update rewrites the bubble it belongs to instead of
@@ -126,6 +127,10 @@ final class ChatViewModel: ObservableObject {
             }
         }
         startReceiver()
+        deviceMonitor.onChange = { [weak self] in
+            MainActor.assumeIsolated { self?.audioDevicesChanged() }
+        }
+        deviceMonitor.start()
         rigStatusPolling = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.refreshRigStatus()
@@ -281,6 +286,18 @@ final class ChatViewModel: ObservableObject {
         decoder.reset()
         dropAllPartialDecodes()
         startReceiver()
+    }
+
+    // A device was connected or disconnected, or the system default input
+    // or output changed (connecting AirPods does all three). That can
+    // knock capture off the chosen input, or stop it outright, without
+    // AVAudioEngine reporting anything we'd otherwise act on. So rebuild
+    // both directions: restartReceiver() re-resolves the saved input
+    // device (falling back to the default if it's gone), and playback
+    // re-resolves its device on the next transmission.
+    private func audioDevicesChanged() {
+        playbackEngine.invalidate()
+        restartReceiver()
     }
 
     private func startCapture(retriesRemaining: Int) {

@@ -124,3 +124,68 @@ enum AudioDeviceLister {
         return fallback
     }
 }
+
+/// Watches for audio hardware coming and going (e.g. AirPods connecting)
+/// and for changes to the system default input or output, and calls
+/// onChange on the main queue once things have settled.
+///
+/// Connecting a Bluetooth headset typically fires a burst of these - the
+/// device list changes, then the default output, then the default input,
+/// sometimes more than once as it switches profiles - so they're
+/// coalesced into a single callback after a short quiet period.
+final class AudioDeviceMonitor {
+    var onChange: (() -> Void)?
+
+    private static let settleDelay: TimeInterval = 1
+    private static let selectors = [
+        kAudioHardwarePropertyDevices,
+        kAudioHardwarePropertyDefaultInputDevice,
+        kAudioHardwarePropertyDefaultOutputDevice,
+    ]
+
+    // The same block has to be passed back to remove the listeners.
+    private var listener: AudioObjectPropertyListenerBlock?
+    private var pendingChange: DispatchWorkItem?
+
+    func start() {
+        guard listener == nil else { return }
+        let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            self?.scheduleChange()
+        }
+        for selector in Self.selectors {
+            var address = Self.address(for: selector)
+            AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, .main, block)
+        }
+        listener = block
+    }
+
+    func stop() {
+        pendingChange?.cancel()
+        pendingChange = nil
+        guard let listener else { return }
+        for selector in Self.selectors {
+            var address = Self.address(for: selector)
+            AudioObjectRemovePropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, .main, listener)
+        }
+        self.listener = nil
+    }
+
+    deinit {
+        stop()
+    }
+
+    private func scheduleChange() {
+        pendingChange?.cancel()
+        let change = DispatchWorkItem { [weak self] in
+            self?.onChange?()
+        }
+        pendingChange = change
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.settleDelay, execute: change)
+    }
+
+    private static func address(for selector: AudioObjectPropertySelector) -> AudioObjectPropertyAddress {
+        AudioObjectPropertyAddress(mSelector: selector,
+                                   mScope: kAudioObjectPropertyScopeGlobal,
+                                   mElement: kAudioObjectPropertyElementMain)
+    }
+}

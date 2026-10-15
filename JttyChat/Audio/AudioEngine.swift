@@ -381,6 +381,13 @@ final class PlaybackEngine {
         }
     }
 
+    /// Forces the next play() to build a fresh engine, e.g. because the
+    /// set of audio devices changed and the current one may now be bound
+    /// to the wrong device or format.
+    func invalidate() {
+        isStale = true
+    }
+
     func play(samples: [Int16], deviceID: AudioDeviceID?, completion: @escaping () -> Void) throws {
         guard !samples.isEmpty else {
             completion()
