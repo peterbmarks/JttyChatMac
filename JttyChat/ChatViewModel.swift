@@ -452,6 +452,46 @@ final class ChatViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Test tone
+
+    private static let testToneHz = 1000.0
+    // Near full scale, like the encoder's own output, so the level set
+    // with the tone is the level messages go out at.
+    private static let testToneLevel: Float = 0.97
+
+    /// Plays a 1 kHz tone through the given output device until
+    /// stopTestTone(), at the given gain. Used by Settings, which passes
+    /// its unsaved choices so they can be tried before pressing OK. The
+    /// rig isn't keyed: the tone only goes out over the air if the rig is
+    /// already transmitting (or keys itself on VOX).
+    func startTestTone(outputDeviceUID: String?, gainDb: Double) {
+        guard !isSending else { return }
+        let deviceID = AudioDeviceLister.resolve(uid: outputDeviceUID,
+                                                 fallback: AudioDeviceLister.defaultOutputDevice())?.id
+        do {
+            try playbackEngine.startTone(frequencyHz: Self.testToneHz,
+                                         amplitude: Self.testToneLevel * AudioGain.linear(db: gainDb),
+                                         deviceID: deviceID)
+        } catch {
+            alertMessage = "Couldn't play the test tone: \(error.localizedDescription)"
+            return
+        }
+
+        // Metered before the gain, like a transmission.
+        let peakDb = 20 * log10(Self.testToneLevel)
+        outputMeterTimer?.invalidate()
+        outputMeterTimer = Timer.scheduledTimer(withTimeInterval: Self.outputMeterInterval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.levels.reportOutput(peakDb: peakDb) }
+        }
+    }
+
+    func stopTestTone() {
+        // Only if no transmission has taken over the output since.
+        guard !isSending else { return }
+        playbackEngine.stopTone()
+        stopOutputMeter()
+    }
+
     private func stopOutputMeter() {
         outputMeterTimer?.invalidate()
         outputMeterTimer = nil

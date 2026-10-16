@@ -77,7 +77,10 @@ struct SettingsView: View {
         }
         // Back to the saved gain: after OK that's the new one, after Cancel
         // (or closing the window) it drops the unsaved preview.
-        .onDisappear { viewModel.previewInputGain(db: settings.audioInputGainDb) }
+        .onDisappear {
+            viewModel.previewInputGain(db: settings.audioInputGainDb)
+            viewModel.stopTestTone()
+        }
         .onChange(of: selectedRigModel) { _, model in
             loadSerialDefaults(model: model)
             loadModes(model: model)
@@ -118,6 +121,19 @@ struct SettingsView: View {
             }
             .help("Shows the level while transmitting")
             gainSlider("Output Gain:", value: $outputGainDb, range: AudioGain.outputRangeDb)
+            LabeledContent("") {
+                Button("Test") {}
+                    .buttonStyle(HoldButtonStyle { isPressed in
+                        if isPressed {
+                            viewModel.startTestTone(outputDeviceUID: selectedOutputUID, gainDb: outputGainDb)
+                        } else {
+                            viewModel.stopTestTone()
+                        }
+                    })
+                    .disabled(viewModel.isSending)
+                    .help("Hold to play a 1 kHz tone through the audio output (doesn't key the rig)")
+                    .accessibilityHint("Plays a 1 kilohertz tone while held down")
+            }
         }
         .padding(8)
         .frame(maxHeight: .infinity, alignment: .top)
@@ -337,5 +353,37 @@ struct SettingsView: View {
         }
         ports.append("localhost:4532")
         return ports
+    }
+}
+
+/// A push button that reports when it's pressed and released, for actions
+/// that last as long as the button is held down. A Button's own action
+/// only fires on release. Drawn by hand, since a ButtonStyle can't reuse
+/// the system bezel, but sized to sit alongside standard push buttons.
+private struct HoldButtonStyle: ButtonStyle {
+    let onPressChanged: (Bool) -> Void
+
+    func makeBody(configuration: Configuration) -> some View {
+        HoldButton(configuration: configuration, onPressChanged: onPressChanged)
+    }
+
+    private struct HoldButton: View {
+        let configuration: Configuration
+        let onPressChanged: (Bool) -> Void
+        @Environment(\.isEnabled) private var isEnabled
+
+        var body: some View {
+            configuration.label
+                .padding(.horizontal, 14)
+                .padding(.vertical, 3)
+                .foregroundStyle(configuration.isPressed ? Color.white : Color.primary)
+                .background(configuration.isPressed ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.background),
+                            in: RoundedRectangle(cornerRadius: 5))
+                .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(.separator))
+                .opacity(isEnabled ? 1 : 0.5)
+                .onChange(of: configuration.isPressed) { _, isPressed in
+                    onPressChanged(isPressed)
+                }
+        }
     }
 }

@@ -394,6 +394,51 @@ final class PlaybackEngine {
             return
         }
 
+        try prepare(deviceID: deviceID)
+
+        guard let buffer = makeBuffer(samples) else {
+            completion()
+            return
+        }
+
+        player.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { _ in
+            DispatchQueue.main.async(execute: completion)
+        }
+        player.play()
+    }
+
+    /// Plays a continuous sine tone until stopTone() is called, for
+    /// checking the output device and its level.
+    func startTone(frequencyHz: Double, amplitude: Float, deviceID: AudioDeviceID?) throws {
+        try prepare(deviceID: deviceID)
+
+        // The loop holds a whole number of cycles, so it joins up without a
+        // click. A short fade-in ahead of it avoids one at the start.
+        let sampleRate = Double(Jtty.txSampleRate)
+        let cycleLength = sampleRate / frequencyHz
+        let loopCycles = max(1, (sampleRate / 10 / cycleLength).rounded())
+        let loopLength = Int((loopCycles * cycleLength).rounded())
+        let fadeLength = loopLength
+        let scale = Double(amplitude) * 32767
+        func sample(_ index: Int, level: Double) -> Int16 {
+            Int16(clamping: Int((sin(2 * .pi * frequencyHz * Double(index) / sampleRate) * scale * level).rounded()))
+        }
+        let fadeIn = (0..<fadeLength).map { sample($0, level: Double($0) / Double(fadeLength)) }
+        let loop = (0..<loopLength).map { sample($0, level: 1) }
+        guard let fadeBuffer = makeBuffer(fadeIn), let loopBuffer = makeBuffer(loop) else { return }
+
+        player.scheduleBuffer(fadeBuffer)
+        player.scheduleBuffer(loopBuffer, at: nil, options: .loops)
+        player.play()
+    }
+
+    func stopTone() {
+        player.stop()
+    }
+
+    // Gets the engine running on deviceID, rebuilding it first if it's
+    // stale or pointed somewhere else.
+    private func prepare(deviceID: AudioDeviceID?) throws {
         // AVAudioPlayerNode doesn't reset its own play/pause state just
         // because the engine was stopped - without this, scheduling and
         // playing a new buffer on a node left over from a previous send
@@ -415,23 +460,20 @@ final class PlaybackEngine {
             try rebuild(deviceID: deviceID)
         }
 
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count)) else {
-            completion()
-            return
-        }
-        buffer.frameLength = AVAudioFrameCount(samples.count)
-        samples.withUnsafeBufferPointer { samplesPtr in
-            buffer.int16ChannelData![0].update(from: samplesPtr.baseAddress!, count: samples.count)
-        }
-
         if !engine.isRunning {
             engine.prepare()
             try engine.start()
         }
+    }
 
-        player.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { _ in
-            DispatchQueue.main.async(execute: completion)
+    private func makeBuffer(_ samples: [Int16]) -> AVAudioPCMBuffer? {
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count)),
+              let channel = buffer.int16ChannelData?[0] else { return nil }
+        buffer.frameLength = AVAudioFrameCount(samples.count)
+        samples.withUnsafeBufferPointer { samplesPtr in
+            guard let base = samplesPtr.baseAddress else { return }
+            channel.update(from: base, count: samples.count)
         }
-        player.play()
+        return buffer
     }
 }
