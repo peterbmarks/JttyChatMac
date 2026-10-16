@@ -349,6 +349,13 @@ final class PlaybackEngine {
     private var isStale = true
     private var configObserver: NSObjectProtocol?
 
+    /// Linear gain (0...1) for everything played. Applied as the player's
+    /// mixer volume, so a change takes effect immediately - including on a
+    /// transmission or test tone that's already playing.
+    var gain: Float = 1 {
+        didSet { player.volume = gain }
+    }
+
     // Builds a new engine pointed at deviceID. A fresh engine rather than
     // re-pointing the old one, for the same reason CaptureEngine.start()
     // does it: an AVAudioEngine keeps the I/O formats it first saw after
@@ -364,6 +371,7 @@ final class PlaybackEngine {
 
         engine = AVAudioEngine()
         player = AVAudioPlayerNode()
+        player.volume = gain
         configuredDeviceID = nil
         // Pick the device before anything is connected, so the mixer to
         // output connection is made at that device's format.

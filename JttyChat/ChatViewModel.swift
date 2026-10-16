@@ -95,6 +95,9 @@ final class ChatViewModel: ObservableObject {
     let waterfall = WaterfallBitmap()
     let levels = AudioLevels()
     private let inputGain = LiveGain()
+    // The output device picked in Settings but not yet saved; used in
+    // place of the saved one while Settings is open.
+    private var previewedOutputDeviceUID: String?
     // Steps the output meter through a transmission as it plays.
     private var outputMeterTimer: Timer?
     private static let outputMeterInterval: TimeInterval = 0.05
@@ -132,6 +135,7 @@ final class ChatViewModel: ObservableObject {
             }
         }
         startReceiver()
+        playbackEngine.gain = AudioGain.linear(db: settings.audioOutputGainDb)
         deviceMonitor.onChange = { [weak self] in
             MainActor.assumeIsolated { self?.audioDevicesChanged() }
         }
@@ -308,6 +312,34 @@ final class ChatViewModel: ObservableObject {
         inputGain.set(db: db)
     }
 
+    /// Sends transmissions to this output device straight away, without
+    /// saving it, so a choice made in Settings applies before OK is
+    /// pressed. Settings calls endOutputDevicePreview() when it closes,
+    /// which leaves the saved device in charge again - the new one after
+    /// OK, the old one after Cancel.
+    func previewOutputDevice(uid: String?) {
+        previewedOutputDeviceUID = uid
+    }
+
+    func endOutputDevicePreview() {
+        previewedOutputDeviceUID = nil
+    }
+
+    /// Applies an output gain straight away, without saving it - to the
+    /// next transmission, and to one (or a test tone) already playing.
+    /// Like previewInputGain(db:), Settings puts the saved gain back when
+    /// it closes.
+    func previewOutputGain(db: Double) {
+        playbackEngine.gain = AudioGain.linear(db: db)
+    }
+
+    // The previewed output device if there is one, otherwise the saved one,
+    // falling back to the system default if it's gone.
+    private func currentOutputDevice() -> AudioDeviceInfo? {
+        guard let previewedOutputDeviceUID else { return settings.resolvedOutputDevice() }
+        return AudioDeviceLister.resolve(uid: previewedOutputDeviceUID, fallback: AudioDeviceLister.defaultOutputDevice())
+    }
+
     // A device was connected or disconnected, or the system default input
     // or output changed (connecting AirPods does all three). That can
     // knock capture off the chosen input, or stop it outright, without
@@ -388,13 +420,12 @@ final class ChatViewModel: ObservableObject {
         return true
     }
 
-    private func transmit(samples rawSamples: [Int16]) {
-        guard !rawSamples.isEmpty else { return }
-        let samples = AudioGain.apply(AudioGain.linear(db: settings.audioOutputGainDb), to: rawSamples)
+    private func transmit(samples: [Int16]) {
+        guard !samples.isEmpty else { return }
 
         isSending = true
         let rig = settings.loadRigTxSettings()
-        let outputDeviceID = settings.resolvedOutputDevice()?.id
+        let outputDeviceID = currentOutputDevice()?.id
 
         if let rig {
             rigQueue.async { _ = RigController.setPTT(model: rig.model, port: rig.port, serial: rig.serial, on: true) }
@@ -406,9 +437,13 @@ final class ChatViewModel: ObservableObject {
 
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(leadMs)) { [weak self] in
             do {
-                try self?.playbackEngine.play(samples: samples, deviceID: outputDeviceID) {}
-                self?.transmitMonitor.start(samples)
-                self?.startOutputMeter(rawSamples)
+                guard let self else { return }
+                // The output gain is applied by the playback engine as it
+                // plays, so the samples go to it unscaled. The waterfall's
+                // copy is scaled here, at the gain in effect as it starts.
+                try self.playbackEngine.play(samples: samples, deviceID: outputDeviceID) {}
+                self.transmitMonitor.start(AudioGain.apply(self.playbackEngine.gain, to: samples))
+                self.startOutputMeter(samples)
             } catch {
                 self?.alertMessage = "Couldn't play the transmit audio: \(error.localizedDescription)"
             }
@@ -459,19 +494,16 @@ final class ChatViewModel: ObservableObject {
     // with the tone is the level messages go out at.
     private static let testToneLevel: Float = 0.97
 
-    /// Plays a 1 kHz tone through the given output device until
-    /// stopTestTone(), at the given gain. Used by Settings, which passes
-    /// its unsaved choices so they can be tried before pressing OK. The
-    /// rig isn't keyed: the tone only goes out over the air if the rig is
-    /// already transmitting (or keys itself on VOX).
-    func startTestTone(outputDeviceUID: String?, gainDb: Double) {
+    /// Plays a 1 kHz tone until stopTestTone(), through the same output
+    /// device and at the same gain a transmission would use - including
+    /// any unsaved choices previewed from Settings. The rig isn't keyed:
+    /// the tone only goes out over the air if the rig is already
+    /// transmitting (or keys itself on VOX).
+    func startTestTone() {
         guard !isSending else { return }
-        let deviceID = AudioDeviceLister.resolve(uid: outputDeviceUID,
-                                                 fallback: AudioDeviceLister.defaultOutputDevice())?.id
         do {
-            try playbackEngine.startTone(frequencyHz: Self.testToneHz,
-                                         amplitude: Self.testToneLevel * AudioGain.linear(db: gainDb),
-                                         deviceID: deviceID)
+            try playbackEngine.startTone(frequencyHz: Self.testToneHz, amplitude: Self.testToneLevel,
+                                         deviceID: currentOutputDevice()?.id)
         } catch {
             alertMessage = "Couldn't play the test tone: \(error.localizedDescription)"
             return

@@ -75,10 +75,19 @@ struct SettingsView: View {
         .onChange(of: inputGainDb) { _, gainDb in
             viewModel.previewInputGain(db: gainDb)
         }
-        // Back to the saved gain: after OK that's the new one, after Cancel
-        // (or closing the window) it drops the unsaved preview.
+        .onChange(of: selectedOutputUID) { _, uid in
+            viewModel.previewOutputDevice(uid: uid)
+        }
+        .onChange(of: outputGainDb) { _, gainDb in
+            viewModel.previewOutputGain(db: gainDb)
+        }
+        // Back to the saved gains and output device: after OK those are the
+        // new ones, after Cancel (or closing the window) it drops the
+        // unsaved previews.
         .onDisappear {
             viewModel.previewInputGain(db: settings.audioInputGainDb)
+            viewModel.previewOutputGain(db: settings.audioOutputGainDb)
+            viewModel.endOutputDevicePreview()
             viewModel.stopTestTone()
         }
         .onChange(of: selectedRigModel) { _, model in
@@ -125,7 +134,7 @@ struct SettingsView: View {
                 Button("Test") {}
                     .buttonStyle(HoldButtonStyle { isPressed in
                         if isPressed {
-                            viewModel.startTestTone(outputDeviceUID: selectedOutputUID, gainDb: outputGainDb)
+                            viewModel.startTestTone()
                         } else {
                             viewModel.stopTestTone()
                         }
