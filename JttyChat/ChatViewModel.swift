@@ -15,7 +15,10 @@ final class ChatViewModel: ObservableObject {
 
     private static let spectrumLowHz = 1400
     private static let spectrumHighHz = 1700
-    private static let spectrumFftSize = 8192 // ~1.5 Hz/bin at the 12 kHz Rx rate
+    // ~0.73 Hz/bin at the 12 kHz Rx rate. The price of the finer bins is a
+    // longer analysis window (~1.4 s), so changes show up a little more
+    // smeared over time on the waterfall.
+    private static let spectrumFftSize = 16384
     private static let pttLeadMs = 150 // brief key-up lead before audio starts, for real radios
     private static let txTailMs = 200 // margin after audio ends before unkeying/re-enabling Send
     // A USB interface can take several seconds to re-enumerate after a
