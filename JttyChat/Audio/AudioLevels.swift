@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import Synchronization
 
 /// Live peak levels of the audio coming in and going out, in dBFS, for the
 /// level meters in Settings.
@@ -44,8 +45,23 @@ final class AudioLevels {
     }
 }
 
+/// The input gain currently being applied to captured audio, shared with
+/// the capture thread so Settings can change it while audio is flowing.
+nonisolated final class LiveGain: Sendable {
+    private let linear = Mutex<Float>(1)
+
+    var value: Float {
+        linear.withLock { $0 }
+    }
+
+    func set(db: Double) {
+        let gain = AudioGain.linear(db: db)
+        linear.withLock { $0 = gain }
+    }
+}
+
 /// Software gain, set in Settings, for the audio input and output.
-enum AudioGain {
+nonisolated enum AudioGain {
     static let inputRangeDb: ClosedRange<Double> = -20...20
     // Attenuation only: the encoder already produces audio close to full
     // scale, so any boost would just clip.

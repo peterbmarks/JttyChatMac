@@ -94,6 +94,7 @@ final class ChatViewModel: ObservableObject {
 
     let waterfall = WaterfallBitmap()
     let levels = AudioLevels()
+    private let inputGain = LiveGain()
     // Steps the output meter through a transmission as it plays.
     private var outputMeterTimer: Timer?
     private static let outputMeterInterval: TimeInterval = 0.05
@@ -259,15 +260,16 @@ final class ChatViewModel: ObservableObject {
     // MARK: - Receive
 
     func startReceiver() {
-        // Read once per start: saving Settings restarts the receiver, so a
-        // new gain takes effect then.
-        let gain = AudioGain.linear(db: settings.audioInputGainDb)
+        inputGain.set(db: settings.audioInputGainDb)
+        let inputGain = inputGain
         captureEngine.onSamples = { [weak self] rawSamples in
             guard let self else { return }
             // Metered before the gain, so Settings can preview an unsaved one.
             let peakDb = AudioLevels.peakDb(of: rawSamples)
             Task { @MainActor in self.levels.reportInput(peakDb: peakDb) }
-            let samples = AudioGain.apply(gain, to: rawSamples)
+            // Gain goes on before the waterfall and decoder, read fresh for
+            // every chunk so the slider in Settings takes effect live.
+            let samples = AudioGain.apply(inputGain.value, to: rawSamples)
             // Our own transmission is added to the waterfall only; the
             // decoder hears just what was actually received.
             let displayed = self.transmitMonitor.mix(into: samples)
@@ -297,6 +299,13 @@ final class ChatViewModel: ObservableObject {
         decoder.reset()
         dropAllPartialDecodes()
         startReceiver()
+    }
+
+    /// Applies an input gain straight away, without saving it, so the
+    /// waterfall follows the Settings slider as it moves. Settings puts the
+    /// saved gain back when it closes, which undoes this after a Cancel.
+    func previewInputGain(db: Double) {
+        inputGain.set(db: db)
     }
 
     // A device was connected or disconnected, or the system default input

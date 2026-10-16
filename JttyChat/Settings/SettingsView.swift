@@ -72,6 +72,12 @@ struct SettingsView: View {
         .frame(width: 460)
         .fixedSize(horizontal: false, vertical: true)
         .onAppear { loadState() }
+        .onChange(of: inputGainDb) { _, gainDb in
+            viewModel.previewInputGain(db: gainDb)
+        }
+        // Back to the saved gain: after OK that's the new one, after Cancel
+        // (or closing the window) it drops the unsaved preview.
+        .onDisappear { viewModel.previewInputGain(db: settings.audioInputGainDb) }
         .onChange(of: selectedRigModel) { _, model in
             loadSerialDefaults(model: model)
             loadModes(model: model)
