@@ -93,6 +93,10 @@ final class ChatViewModel: ObservableObject {
     private var lastSentText: String?
 
     let waterfall = WaterfallBitmap()
+    let levels = AudioLevels()
+    // Steps the output meter through a transmission as it plays.
+    private var outputMeterTimer: Timer?
+    private static let outputMeterInterval: TimeInterval = 0.05
 
     private let settings: AppSettings
     private let decoder = JttyDecoder()
@@ -255,8 +259,15 @@ final class ChatViewModel: ObservableObject {
     // MARK: - Receive
 
     func startReceiver() {
-        captureEngine.onSamples = { [weak self] samples in
+        // Read once per start: saving Settings restarts the receiver, so a
+        // new gain takes effect then.
+        let gain = AudioGain.linear(db: settings.audioInputGainDb)
+        captureEngine.onSamples = { [weak self] rawSamples in
             guard let self else { return }
+            // Metered before the gain, so Settings can preview an unsaved one.
+            let peakDb = AudioLevels.peakDb(of: rawSamples)
+            Task { @MainActor in self.levels.reportInput(peakDb: peakDb) }
+            let samples = AudioGain.apply(gain, to: rawSamples)
             // Our own transmission is added to the waterfall only; the
             // decoder hears just what was actually received.
             let displayed = self.transmitMonitor.mix(into: samples)
@@ -368,8 +379,9 @@ final class ChatViewModel: ObservableObject {
         return true
     }
 
-    private func transmit(samples: [Int16]) {
-        guard !samples.isEmpty else { return }
+    private func transmit(samples rawSamples: [Int16]) {
+        guard !rawSamples.isEmpty else { return }
+        let samples = AudioGain.apply(AudioGain.linear(db: settings.audioOutputGainDb), to: rawSamples)
 
         isSending = true
         let rig = settings.loadRigTxSettings()
@@ -387,6 +399,7 @@ final class ChatViewModel: ObservableObject {
             do {
                 try self?.playbackEngine.play(samples: samples, deviceID: outputDeviceID) {}
                 self?.transmitMonitor.start(samples)
+                self?.startOutputMeter(rawSamples)
             } catch {
                 self?.alertMessage = "Couldn't play the transmit audio: \(error.localizedDescription)"
             }
@@ -401,8 +414,39 @@ final class ChatViewModel: ObservableObject {
             // Normally already used up by now; this just guarantees the
             // trace can't outlast the transmission (e.g. if capture stalled).
             self?.transmitMonitor.stop()
+            self?.stopOutputMeter()
             self?.isSending = false
         }
+    }
+
+    // There's no tap on the playback engine, so the output meter is driven
+    // from the samples themselves: their peak level is worked out up front
+    // for each meter interval, then stepped through in time with playback.
+    // Like the input meter, it's metered before the gain.
+    private func startOutputMeter(_ rawSamples: [Int16]) {
+        let blockSize = Int(Double(Jtty.txSampleRate) * Self.outputMeterInterval)
+        let peaks = stride(from: 0, to: rawSamples.count, by: blockSize).map { start in
+            AudioLevels.peakDb(of: rawSamples[start..<min(start + blockSize, rawSamples.count)])
+        }
+        var index = 0
+        outputMeterTimer?.invalidate()
+        outputMeterTimer = Timer.scheduledTimer(withTimeInterval: Self.outputMeterInterval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                guard index < peaks.count else {
+                    self.stopOutputMeter()
+                    return
+                }
+                self.levels.reportOutput(peakDb: peaks[index])
+                index += 1
+            }
+        }
+    }
+
+    private func stopOutputMeter() {
+        outputMeterTimer?.invalidate()
+        outputMeterTimer = nil
+        levels.resetOutput()
     }
 
     // MARK: - Export

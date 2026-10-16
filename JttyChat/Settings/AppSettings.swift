@@ -8,6 +8,8 @@ private enum SettingsKey {
     static let callsign = "callsign"
     static let audioInputDeviceUID = "Transceiver.audioInputDeviceUID"
     static let audioOutputDeviceUID = "Transceiver.audioOutputDeviceUID"
+    static let audioInputGainDb = "Transceiver.audioInputGainDb"
+    static let audioOutputGainDb = "Transceiver.audioOutputGainDb"
     static let rigModel = "Transceiver.rigModel"
     static let rigPort = "Transceiver.rigPort"
     static let rigBaudRate = "Transceiver.rigBaudRate"
@@ -62,6 +64,9 @@ final class AppSettings: ObservableObject {
     @Published var callsign: String
     @Published var audioInputDeviceUID: String?
     @Published var audioOutputDeviceUID: String?
+    /// Software gain applied to captured and transmitted audio, in dB.
+    @Published var audioInputGainDb: Double
+    @Published var audioOutputGainDb: Double
     @Published var rigModel: Int?
     @Published var rigPort: String
     @Published var rigSerial: RigSerialConfig
@@ -84,6 +89,8 @@ final class AppSettings: ObservableObject {
         callsign = defaults.string(forKey: SettingsKey.callsign) ?? ""
         audioInputDeviceUID = defaults.string(forKey: SettingsKey.audioInputDeviceUID)
         audioOutputDeviceUID = defaults.string(forKey: SettingsKey.audioOutputDeviceUID)
+        audioInputGainDb = defaults.object(forKey: SettingsKey.audioInputGainDb) as? Double ?? 0
+        audioOutputGainDb = defaults.object(forKey: SettingsKey.audioOutputGainDb) as? Double ?? 0
         rigModel = defaults.object(forKey: SettingsKey.rigModel) as? Int
         rigPort = defaults.string(forKey: SettingsKey.rigPort) ?? ""
         rigSerial = Self.loadRigSerial(from: defaults)
@@ -124,6 +131,8 @@ final class AppSettings: ObservableObject {
         defaults.set(callsign.trimmingCharacters(in: .whitespaces), forKey: SettingsKey.callsign)
         defaults.set(audioInputDeviceUID, forKey: SettingsKey.audioInputDeviceUID)
         defaults.set(audioOutputDeviceUID, forKey: SettingsKey.audioOutputDeviceUID)
+        defaults.set(audioInputGainDb, forKey: SettingsKey.audioInputGainDb)
+        defaults.set(audioOutputGainDb, forKey: SettingsKey.audioOutputGainDb)
         if let rigModel {
             defaults.set(rigModel, forKey: SettingsKey.rigModel)
         } else {

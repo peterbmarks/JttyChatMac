@@ -23,6 +23,8 @@ struct SettingsView: View {
     @State private var outputDevices: [AudioDeviceInfo] = []
     @State private var selectedInputUID: String?
     @State private var selectedOutputUID: String?
+    @State private var inputGainDb = 0.0
+    @State private var outputGainDb = 0.0
 
     @State private var rigs: [RigInfo] = []
     @State private var isLoadingRigs = false
@@ -93,15 +95,39 @@ struct SettingsView: View {
                     Text(device.name).tag(Optional(device.uid))
                 }
             }
+            LabeledContent("Input Level:") {
+                LevelMeter(levels: viewModel.levels, level: \.inputDb, gainDb: inputGainDb)
+            }
+            gainSlider("Input Gain:", value: $inputGainDb, range: AudioGain.inputRangeDb)
+
+            Spacer().frame(height: 12)
 
             Picker("Audio Output:", selection: $selectedOutputUID) {
                 ForEach(outputDevices) { device in
                     Text(device.name).tag(Optional(device.uid))
                 }
             }
+            LabeledContent("Output Level:") {
+                LevelMeter(levels: viewModel.levels, level: \.outputDb, gainDb: outputGainDb)
+            }
+            .help("Shows the level while transmitting")
+            gainSlider("Output Gain:", value: $outputGainDb, range: AudioGain.outputRangeDb)
         }
         .padding(8)
         .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    private func gainSlider(_ label: String, value: Binding<Double>, range: ClosedRange<Double>) -> some View {
+        LabeledContent(label) {
+            HStack(spacing: 8) {
+                Slider(value: value, in: range, step: 1)
+                    .accessibilityLabel(label)
+                    .accessibilityValue("\(Int(value.wrappedValue)) decibels")
+                Text(value.wrappedValue > 0 ? "+\(Int(value.wrappedValue)) dB" : "\(Int(value.wrappedValue)) dB")
+                    .monospacedDigit()
+                    .frame(width: 52, alignment: .trailing)
+            }
+        }
     }
 
     private var transceiverTab: some View {
@@ -229,6 +255,8 @@ struct SettingsView: View {
         outputDevices = AudioDeviceLister.outputDevices()
         selectedInputUID = settings.audioInputDeviceUID ?? AudioDeviceLister.defaultInputDevice()?.uid
         selectedOutputUID = settings.audioOutputDeviceUID ?? AudioDeviceLister.defaultOutputDevice()?.uid
+        inputGainDb = settings.audioInputGainDb
+        outputGainDb = settings.audioOutputGainDb
 
         selectedRigModel = settings.rigModel
         rigPort = settings.rigPort
@@ -276,6 +304,8 @@ struct SettingsView: View {
         settings.appendCallsign = appendCallsign
         settings.audioInputDeviceUID = selectedInputUID
         settings.audioOutputDeviceUID = selectedOutputUID
+        settings.audioInputGainDb = inputGainDb
+        settings.audioOutputGainDb = outputGainDb
         settings.rigModel = selectedRigModel
         settings.rigPort = rigPort.trimmingCharacters(in: .whitespaces)
         settings.rigSerial = rigSerial
