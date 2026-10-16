@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// The Settings window: callsign, audio input/output device choice, and a
-/// Transceiver section for Hamlib rig control (model, port, serial line
+/// The Settings window, in three tabs: General (callsign and message
+/// options), Audio (input/output device choice), and Transceiver for Hamlib
+/// rig control (model, port, serial line
 /// settings - baud rate, data/stop bits, parity, handshake, DTR/RTS - and
 /// a Connect button that shows the rig's current frequency/mode). Ported
 /// from JttyChatLinux/src/SettingsDialog.{h,cpp}.
@@ -43,90 +44,18 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Form {
-                TextField("Callsign:", text: $callsign, prompt: Text("e.g. W1AW"))
-                Toggle("Capitalise messages", isOn: $capitalizeMessages)
-                Toggle("Append callsign", isOn: $appendCallsign)
-            }
-
-            GroupBox("Transceiver") {
-                Form {
-                    Picker("Audio Input:", selection: $selectedInputUID) {
-                        ForEach(inputDevices) { device in
-                            Text(device.name).tag(Optional(device.uid))
-                        }
-                    }
-
-                    Picker("Audio Output:", selection: $selectedOutputUID) {
-                        ForEach(outputDevices) { device in
-                            Text(device.name).tag(Optional(device.uid))
-                        }
-                    }
-
-                    Picker("Rig Model:", selection: $selectedRigModel) {
-                        Text(isLoadingRigs ? "Loading..." : "None").tag(Int?.none)
-                        ForEach(rigs) { rig in
-                            Text(rig.label).tag(Optional(rig.model))
-                        }
-                    }
-
-                    Picker("Mode:", selection: $rigMode) {
-                        Text(defaultModeLabel).tag(RigController.defaultModeValue)
-                        ForEach(modeChoices, id: \.self) { mode in
-                            Text(mode).tag(mode)
-                        }
-                    }
-                    .help("Set on the rig when connecting and when changing frequency")
-
-                    HStack(spacing: 4) {
-                        TextField("Rig Port:", text: $rigPort, prompt: Text("/dev/cu.usbserial-XXXX"))
-                        Menu {
-                            ForEach(discoveredPorts, id: \.self) { port in
-                                Button(port) { rigPort = port }
-                            }
-                        } label: {
-                            Image(systemName: "chevron.down.circle")
-                        }
-                        .menuStyle(.borderlessButton)
-                        .fixedSize()
-                        .help("Choose a detected port")
-                    }
-
-                    ForEach(RigSerialSetting.allCases) { setting in
-                        Picker(setting.label, selection: $rigSerial[setting]) {
-                            Text(defaultLabel(for: setting)).tag(RigSerialConfig.defaultValue)
-                            ForEach(setting.options, id: \.self) { value in
-                                Text(setting.displayName(for: value)).tag(value)
-                            }
-                        }
-                    }
-
-                    LabeledContent("") {
-                        Button("Connect") { connectToRig() }
-                            .disabled(isConnecting || selectedRigModel == nil)
-                    }
-
-                    if !rigStatusText.isEmpty {
-                        LabeledContent("") {
-                            Text(rigStatusText)
-                                .foregroundColor(rigStatusIsError ? .red : .primary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-
-                    LabeledContent("Hamlib Version:") {
-                        Text(RigController.hamlibVersion)
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    LabeledContent("Hamlib Library:") {
-                        Text(RigController.hamlibLibraryPath)
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+            // All three tabs edit the same draft state, so OK/Cancel below
+            // apply to (or discard) changes made on any of them.
+            TabView {
+                Tab("General", systemImage: "person") {
+                    generalTab
                 }
-                .padding(8)
+                Tab("Audio", systemImage: "speaker.wave.2") {
+                    audioTab
+                }
+                Tab("Transceiver", systemImage: "antenna.radiowaves.left.and.right") {
+                    transceiverTab
+                }
             }
 
             HStack {
@@ -138,13 +67,109 @@ struct SettingsView: View {
             }
         }
         .padding(20)
-        .frame(width: 420)
+        .frame(width: 460)
         .fixedSize(horizontal: false, vertical: true)
         .onAppear { loadState() }
         .onChange(of: selectedRigModel) { _, model in
             loadSerialDefaults(model: model)
             loadModes(model: model)
         }
+    }
+
+    private var generalTab: some View {
+        Form {
+            TextField("Callsign:", text: $callsign, prompt: Text("e.g. W1AW"))
+            Toggle("Capitalise messages", isOn: $capitalizeMessages)
+            Toggle("Append callsign", isOn: $appendCallsign)
+        }
+        .padding(8)
+        .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    private var audioTab: some View {
+        Form {
+            Picker("Audio Input:", selection: $selectedInputUID) {
+                ForEach(inputDevices) { device in
+                    Text(device.name).tag(Optional(device.uid))
+                }
+            }
+
+            Picker("Audio Output:", selection: $selectedOutputUID) {
+                ForEach(outputDevices) { device in
+                    Text(device.name).tag(Optional(device.uid))
+                }
+            }
+        }
+        .padding(8)
+        .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    private var transceiverTab: some View {
+        Form {
+            Picker("Rig Model:", selection: $selectedRigModel) {
+                Text(isLoadingRigs ? "Loading..." : "None").tag(Int?.none)
+                ForEach(rigs) { rig in
+                    Text(rig.label).tag(Optional(rig.model))
+                }
+            }
+
+            Picker("Mode:", selection: $rigMode) {
+                Text(defaultModeLabel).tag(RigController.defaultModeValue)
+                ForEach(modeChoices, id: \.self) { mode in
+                    Text(mode).tag(mode)
+                }
+            }
+            .help("Set on the rig when connecting and when changing frequency")
+
+            HStack(spacing: 4) {
+                TextField("Rig Port:", text: $rigPort, prompt: Text("/dev/cu.usbserial-XXXX"))
+                Menu {
+                    ForEach(discoveredPorts, id: \.self) { port in
+                        Button(port) { rigPort = port }
+                    }
+                } label: {
+                    Image(systemName: "chevron.down.circle")
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Choose a detected port")
+            }
+
+            ForEach(RigSerialSetting.allCases) { setting in
+                Picker(setting.label, selection: $rigSerial[setting]) {
+                    Text(defaultLabel(for: setting)).tag(RigSerialConfig.defaultValue)
+                    ForEach(setting.options, id: \.self) { value in
+                        Text(setting.displayName(for: value)).tag(value)
+                    }
+                }
+            }
+
+            LabeledContent("") {
+                Button("Connect") { connectToRig() }
+                    .disabled(isConnecting || selectedRigModel == nil)
+            }
+
+            if !rigStatusText.isEmpty {
+                LabeledContent("") {
+                    Text(rigStatusText)
+                        .foregroundColor(rigStatusIsError ? .red : .primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            LabeledContent("Hamlib Version:") {
+                Text(RigController.hamlibVersion)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            LabeledContent("Hamlib Library:") {
+                Text(RigController.hamlibLibraryPath)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(8)
     }
 
     // "Default (PKTUSB)", once the model's modes are known.
