@@ -84,6 +84,7 @@ final class CaptureEngine {
 
         if let deviceID {
             try Self.setDevice(deviceID, on: engine.inputNode.audioUnit)
+            Self.matchClientRateToHardware(engine.inputNode.audioUnit)
         }
 
         let input = engine.inputNode
@@ -161,6 +162,33 @@ final class CaptureEngine {
         let status = AudioUnitGetProperty(audioUnit, kAudioOutputUnitProperty_CurrentDevice,
                                           kAudioUnitScope_Global, 0, &deviceID, &size)
         return status == noErr && deviceID != 0 ? deviceID : nil
+    }
+
+    // The input node comes into being bound to the system default input,
+    // and AVAudioEngine sets the unit's client-side (output scope) format
+    // to that device's sample rate. Pointing the unit at another device
+    // afterwards doesn't update it, and AUHAL can't convert sample rates on
+    // input - so if the chosen device runs at a different rate from the
+    // default (a 48 kHz USB radio interface, with the Mac's own input at
+    // 44.1 kHz), start() fails with -10868 (kAudioUnitErr_FormatNotSupported)
+    // every time. A fresh engine doesn't help: it starts from the default
+    // device again. So bring the client rate into line with the hardware's
+    // before anything reads the node's format.
+    private static func matchClientRateToHardware(_ audioUnit: AudioUnit?) {
+        guard let audioUnit,
+              let hardware = streamFormat(of: audioUnit, scope: kAudioUnitScope_Input, element: 1),
+              var client = streamFormat(of: audioUnit, scope: kAudioUnitScope_Output, element: 1),
+              hardware.mSampleRate > 0, client.mSampleRate != hardware.mSampleRate else { return }
+
+        let staleRate = client.mSampleRate
+        client.mSampleRate = hardware.mSampleRate
+        let status = AudioUnitSetProperty(audioUnit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, 1,
+                                          &client, UInt32(MemoryLayout<AudioStreamBasicDescription>.size))
+        if status == noErr {
+            logger.notice("Input client format was \(Int(staleRate)) Hz for a \(Int(hardware.mSampleRate)) Hz device; corrected")
+        } else {
+            logger.error("Couldn't correct input client format from \(Int(staleRate)) Hz to \(Int(hardware.mSampleRate)) Hz: error \(status)")
+        }
     }
 
     private static func streamFormat(of audioUnit: AudioUnit, scope: AudioUnitScope,
