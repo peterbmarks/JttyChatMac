@@ -18,6 +18,9 @@ struct SettingsView: View {
     @State private var callsign = ""
     @State private var capitalizeMessages = false
     @State private var appendCallsign = false
+    @State private var playNewMessageSound = false
+    // What happened the last time the new message sound's Test button was pressed.
+    @State private var soundTestResult: String?
 
     @State private var inputDevices: [AudioDeviceInfo] = []
     @State private var outputDevices: [AudioDeviceInfo] = []
@@ -101,6 +104,19 @@ struct SettingsView: View {
             TextField("Callsign:", text: $callsign, prompt: Text("e.g. W1AW"))
             Toggle("Capitalise messages", isOn: $capitalizeMessages)
             Toggle("Append callsign", isOn: $appendCallsign)
+            HStack {
+                Toggle("Play sound for new messages", isOn: $playNewMessageSound)
+                Button("Test") {
+                    soundTestResult = viewModel.testNewMessageSound()
+                }
+                .help("Play the new message sound now")
+            }
+            if let soundTestResult {
+                Text(soundTestResult)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(8)
         .frame(maxHeight: .infinity, alignment: .top)
@@ -281,6 +297,7 @@ struct SettingsView: View {
         callsign = settings.callsign
         capitalizeMessages = settings.capitalizeMessages
         appendCallsign = settings.appendCallsign
+        playNewMessageSound = settings.playNewMessageSound
 
         inputDevices = AudioDeviceLister.inputDevices()
         outputDevices = AudioDeviceLister.outputDevices()
@@ -333,6 +350,7 @@ struct SettingsView: View {
         settings.callsign = callsign
         settings.capitalizeMessages = capitalizeMessages
         settings.appendCallsign = appendCallsign
+        settings.playNewMessageSound = playNewMessageSound
         settings.audioInputDeviceUID = selectedInputUID
         settings.audioOutputDeviceUID = selectedOutputUID
         settings.audioInputGainDb = inputGainDb

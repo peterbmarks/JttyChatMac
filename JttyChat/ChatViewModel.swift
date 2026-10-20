@@ -112,6 +112,7 @@ final class ChatViewModel: ObservableObject {
     private let playbackEngine = PlaybackEngine()
     private let transmitMonitor = TransmitMonitor()
     private let deviceMonitor = AudioDeviceMonitor()
+    private let newMessageSound = NewMessageSound()
 
     // Bubbles for messages still arriving, keyed by the decoder's message
     // id, so each update rewrites the bubble it belongs to instead of
@@ -177,6 +178,9 @@ final class ChatViewModel: ObservableObject {
             if messages[index].text != text {
                 liveBubbles[update.messageId]?.lastProgress = Date()
             }
+            if update.isComplete && messages[index].decodeState != .complete {
+                playNewMessageSound()
+            }
             messages[index].text = text
             messages[index].decodeState = update.isComplete ? .complete : .inProgress
             // Each update carries only the latest frame's SNR; keep the best.
@@ -188,11 +192,27 @@ final class ChatViewModel: ObservableObject {
             messages.append(message)
             // A message that arrived already complete needs no tracking;
             // one still in progress has to be watched in case it stalls.
-            if !update.isComplete {
+            if update.isComplete {
+                playNewMessageSound()
+            } else {
                 liveBubbles[update.messageId] = LiveBubble(bubbleID: message.id, lastProgress: Date())
                 startSweepIfNeeded()
             }
         }
+    }
+
+    // Played once a received message has finished decoding, not when its
+    // bubble first appears: the decoder starts plenty of messages out of
+    // noise that never complete, and those would sound off for nothing.
+    private func playNewMessageSound() {
+        guard settings.playNewMessageSound else { return }
+        newMessageSound.play(avoidingDeviceUID: currentOutputDevice()?.uid)
+    }
+
+    /// Plays the new message sound whether or not it's enabled, for the
+    /// Test button in Settings. Returns what happened.
+    func testNewMessageSound() -> String {
+        newMessageSound.play(avoidingDeviceUID: currentOutputDevice()?.uid)
     }
 
     // MARK: - Abandoned partial decodes

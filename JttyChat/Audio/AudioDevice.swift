@@ -28,6 +28,11 @@ enum AudioDeviceLister {
         defaultDevice(selector: kAudioHardwarePropertyDefaultOutputDevice)
     }
 
+    /// The Mac's own speakers (or headphone jack), if it has any.
+    static func builtInOutputDevice() -> AudioDeviceInfo? {
+        outputDevices().first { transportType(for: $0.id) == kAudioDeviceTransportTypeBuiltIn }
+    }
+
     // MARK: - CoreAudio plumbing
 
     private static func allDevices() -> [AudioDeviceInfo] {
@@ -80,6 +85,16 @@ enum AudioDeviceLister {
         let bufferList = bufferListPointer.assumingMemoryBound(to: AudioBufferList.self)
         let buffers = UnsafeMutableAudioBufferListPointer(bufferList)
         return buffers.reduce(0) { $0 + Int($1.mNumberChannels) }
+    }
+
+    private static func transportType(for deviceID: AudioDeviceID) -> UInt32? {
+        var address = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyTransportType,
+                                                   mScope: kAudioObjectPropertyScopeGlobal,
+                                                   mElement: kAudioObjectPropertyElementMain)
+        var type = UInt32(0)
+        var dataSize = UInt32(MemoryLayout<UInt32>.size)
+        guard AudioObjectGetPropertyData(deviceID, &address, 0, nil, &dataSize, &type) == noErr else { return nil }
+        return type
     }
 
     // The rate the device's hardware is currently running at.

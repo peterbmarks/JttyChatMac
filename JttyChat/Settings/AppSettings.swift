@@ -34,6 +34,7 @@ private enum SettingsKey {
     }
     static let capitalizeMessages = "capitalizeMessages"
     static let appendCallsign = "appendCallsign"
+    static let playNewMessageSound = "playNewMessageSound"
     static let macros = "macros"
 }
 
@@ -75,6 +76,8 @@ final class AppSettings: ObservableObject {
     @Published var rigMode: String
     @Published var capitalizeMessages: Bool
     @Published var appendCallsign: Bool
+    /// Play a sound when a received message finishes decoding. Off by default.
+    @Published var playNewMessageSound: Bool
 
     static let macroCount = 8
 
@@ -97,6 +100,7 @@ final class AppSettings: ObservableObject {
         rigMode = defaults.string(forKey: SettingsKey.rigMode) ?? RigController.defaultModeValue
         capitalizeMessages = defaults.bool(forKey: SettingsKey.capitalizeMessages)
         appendCallsign = defaults.bool(forKey: SettingsKey.appendCallsign)
+        playNewMessageSound = defaults.bool(forKey: SettingsKey.playNewMessageSound)
         macros = Self.loadMacros(from: defaults)
     }
 
@@ -145,6 +149,7 @@ final class AppSettings: ObservableObject {
         defaults.set(rigMode, forKey: SettingsKey.rigMode)
         defaults.set(capitalizeMessages, forKey: SettingsKey.capitalizeMessages)
         defaults.set(appendCallsign, forKey: SettingsKey.appendCallsign)
+        defaults.set(playNewMessageSound, forKey: SettingsKey.playNewMessageSound)
     }
 
     // Resolves the saved input/output device UID to a live CoreAudio
