@@ -11,7 +11,7 @@ import SwiftUI
 final class ChatViewModel: ObservableObject {
     // Band buttons for the Frequency menu, matching MainWindow.cpp's
     // kBandFrequenciesMHz.
-    static let bandFrequenciesMHz: [Double] = [1.838, 3.575, 7.090, 10.140, 14.090, 18.100, 21.090, 24.920, 28.090]
+    static let bandFrequenciesMHz: [Double] = [1.838, 3.575, 3.59, 7.090, 7.043, 10.140, 10.143, 14.080, 14.090, 18.100, 21.090, 24.920, 28.090]
 
     private static let spectrumLowHz = 1400
     private static let spectrumHighHz = 1700
